@@ -144,6 +144,7 @@ type HostLabelRule struct {
 
 // LDAPConfig is the LDAP connection parameters.
 type LDAPConfig struct {
+	Addrs []string // TODO(zmb3)
 	// Addr is the address:port of the LDAP server (typically port 389).
 	Addr string
 	// Domain is the ActiveDirectory domain name.

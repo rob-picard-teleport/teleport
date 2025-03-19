@@ -349,6 +349,15 @@ func NewWindowsService(cfg WindowsServiceConfig) (*WindowsService, error) {
 		}
 	}
 
+	if resolver != nil {
+		servers, err := windows.LocateLDAPServer(context.Background(), resolver, cfg.Domain)
+		if err != nil {
+			cfg.Logger.WarnContext(context.Background(), "could not local LDAP servers", "error", err)
+		} else {
+			cfg.Logger.InfoContext(context.Background(), "discovered LDAP servers", "servers", servers)
+		}
+	}
+
 	clustername, err := cfg.AccessPoint.GetClusterName()
 	if err != nil {
 		return nil, trace.Wrap(err)

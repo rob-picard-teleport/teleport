@@ -33,8 +33,12 @@ import (
 
 // LDAPConfig contains parameters for connecting to an LDAP server.
 type LDAPConfig struct {
+	// Addrs is as set of LDAP server addresses, ordered by priority, in
+	// the form host:port. The standard port is 636 for LDAPS.
+	Addrs []string
 	// Addr is the LDAP server address in the form host:port.
 	// Standard port is 636 for LDAPS.
+	// Deprecated: prefer Addrs instaead.
 	Addr string //nolint:unused // False-positive
 	// Domain is an Active Directory domain name, like "example.com".
 	Domain string //nolint:unused // False-positive
@@ -141,7 +145,6 @@ const searchPageSize = 1000
 // is closed. Callers should check for trace.ConnectionProblem errors
 // and provide a new client with [SetClient].
 type LDAPClient struct {
-	// Cfg is the LDAPConfig
 	Cfg LDAPConfig
 
 	mu     sync.Mutex
