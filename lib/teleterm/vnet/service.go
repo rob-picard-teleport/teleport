@@ -26,6 +26,7 @@ import (
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/gravitational/teleport"
@@ -542,6 +543,36 @@ func (p *clientApplication) OnInvalidLocalPort(ctx context.Context, appInfo *vne
 			"leaf_cluster_name", appKey.GetLeafCluster(),
 			"route_to_app", routeToApp)
 	}
+}
+
+func (p *clientApplication) TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error) {
+	clusterClient, err := p.getCachedClient(ctx, profileName, "")
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	clientConfig, err := clusterClient.ProxyClient.ClientConfig(ctx, clusterName)
+	if err != nil {
+		return nil, trace.Wrap(err, "getting user client config")
+	}
+	tlsConfig, err := clientConfig.Credentials[0].TLSConfig()
+	if err != nil {
+		return nil, trace.Wrap(err, "getting user TLS config")
+	}
+	tlsConfig.ServerName = profileName
+	tlsConfig.NextProtos = nil
+	return tlsConfig, nil
+}
+
+func (p *clientApplication) UserSSHConfig(ctx context.Context, sshInfo *vnet.SSHInfo, username string) (*ssh.ClientConfig, error) {
+	clusterClient, err := p.getCachedClient(ctx, sshInfo.Profile, sshInfo.LeafCluster)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	sshConfig, err := clusterClient.SessionSSHConfig(ctx, username, client.NodeDetails{
+		Addr:    sshInfo.Addr,
+		Cluster: sshInfo.Cluster,
+	})
+	return sshConfig, trace.Wrap(err, "getting session SSH config")
 }
 
 type usageReporter interface {

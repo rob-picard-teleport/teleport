@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/gravitational/trace"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/utils/keys/piv"
@@ -138,6 +139,30 @@ func (p *vnetClientApplication) OnInvalidLocalPort(ctx context.Context, appInfo 
 	}
 
 	fmt.Println(msg)
+}
+
+func (p *vnetClientApplication) TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error) {
+	profile, err := p.clientStore.GetProfile(profileName)
+	if err != nil {
+		return nil, trace.Wrap(err, "loading user profile %s", profileName)
+	}
+	tlsConfig, err := profile.TLSConfig()
+	if err != nil {
+		return nil, trace.Wrap(err, "loading TLS config for profile")
+	}
+	return tlsConfig, nil
+}
+
+func (p *vnetClientApplication) UserSSHConfig(ctx context.Context, sshInfo *vnet.SSHInfo, username string) (*ssh.ClientConfig, error) {
+	clusterClt, err := p.GetCachedClient(ctx, sshInfo.Profile, sshInfo.LeafCluster)
+	if err != nil {
+		return nil, trace.Wrap(err, "getting cached cluster client")
+	}
+	sshConfig, err := clusterClt.SessionSSHConfig(ctx, username, client.NodeDetails{
+		Addr:    sshInfo.Addr,
+		Cluster: sshInfo.Cluster,
+	})
+	return sshConfig, trace.Wrap(err, "getting session SSH config")
 }
 
 // getRootClusterCACertPool returns a certificate pool for the root cluster of the given profile.

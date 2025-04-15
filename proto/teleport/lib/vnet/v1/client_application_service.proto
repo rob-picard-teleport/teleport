@@ -36,6 +36,7 @@ service ClientApplicationService {
   // Ping is used by the admin process to regularly poll that the client
   // application is still running.
   rpc Ping(PingRequest) returns (PingResponse);
+
   // ResolveAppInfo returns info for the given app fqdn, or an error if the app
   // is not present in any logged-in cluster.
   rpc ResolveAppInfo(ResolveAppInfoRequest) returns (ResolveAppInfoResponse);
@@ -53,6 +54,18 @@ service ClientApplicationService {
   rpc OnInvalidLocalPort(OnInvalidLocalPortRequest) returns (OnInvalidLocalPortResponse);
   // GetTargetOSConfiguration gets the target OS configuration.
   rpc GetTargetOSConfiguration(GetTargetOSConfigurationRequest) returns (GetTargetOSConfigurationResponse);
+
+  // ResolveSshInfo returns info for the given SSH server fqdn.
+  rpc ResolveSshInfo(ResolveSshInfoRequest) returns (ResolveSshInfoResponse);
+  // ReissueSshCert issues a new SSH cert.
+  rpc ReissueSshCert(ReissueSshCertRequest) returns (ReissueSshCertResponse);
+  // SignForSsh issues a signature with the private key associated with an SSH
+  // certificate previously issued for a requested SSH server.
+  rpc SignForSsh(SignForSshRequest) returns (SignForSshResponse);
+  // UserMTLSCert returns the user mTLS certificate.
+  rpc UserMTLSCert(UserMTLSCertRequest) returns (UserMTLSCertResponse);
+  // SignForUserMTLS signs a digest with the user TLS private key.
+  rpc SignForUserMTLS(SignForUserMTLSRequest) returns (SignForUserMTLSResponse);
 }
 
 // AuthenticateProcessRequest is a request for AuthenticateProcess.
@@ -108,8 +121,7 @@ message ResolveAppInfoResponse {
 
 // AppInfo holds all necessary info for making connections to VNet TCP apps.
 message AppInfo {
-  // AppKey uniquely identifies a TCP app (and optionally a port for multi-port
-  // TCP apps).
+  // AppKey uniquely identifies a TCP app.
   AppKey app_key = 1;
   // Cluster is the name of the cluster in which the app is found.
   // Iff the app is in a leaf cluster, this will match app_key.leaf_cluster.
@@ -250,4 +262,107 @@ message TargetOSConfiguration {
   // is logged in to, and if any cluster does not configure a custom range it
   // should also include the default range.
   repeated string ipv4_cidr_ranges = 2;
+}
+
+// SshInfo holds information about an SSH server.
+message SshInfo {
+  // SshKey uniquely identifies an SSH server.
+  SshKey ssh_key = 1;
+  // Cluster is the name of the cluster in which the SSH server is found.
+  // Iff the SSH server is in a leaf cluster, this will match
+  // ssh_key.leaf_cluster.
+  string cluster = 2;
+  // Ipv4Cidr_range is the CIDR range from which an IPv4 address should be
+  // assigned to the SSH server.
+  string ipv4_cidr_range = 3;
+  // DialOptions holds options that should be used when dialing the root cluster
+  // of the SSH server.
+  DialOptions dial_options = 4;
+}
+
+// SshKey uniquely identifies an SSH server.
+message SshKey {
+  // Profile is the profile in which the SSH server is found.
+  string profile = 1;
+  // LeafCluster is the leaf cluster in which the SSH server is found. If empty,
+  // the SSH server is in the root cluster for the profile.
+  string leaf_cluster = 2;
+  // Hostname is the hostname of of the SSH server.
+  string hostname = 3;
+}
+
+// ResolveSshInfoRequest is a request for ResolveSshInfo.
+message ResolveSshInfoRequest {
+  // Fqdn is the fully-qualified domain name of the SSH server.
+  string fqdn = 1;
+}
+
+// ResolveSshInfoResponse is a response for ResolveSshInfo.
+message ResolveSshInfoResponse {
+  // SshInfo holds all necessary info for making connections to the resolved SSH
+  // server.
+  SshInfo ssh_info = 1;
+}
+
+// ReissueSshCertRequest is a request for ReissueSshCert.
+message ReissueSshCertRequest {
+  // SshInfo contains info about the SSH server.
+  SshInfo ssh_info = 1;
+}
+
+// ReissueSshCertResponse is a response for ReissueSshCert.
+message ReissueSshCertResponse {
+  // Cert is the issued SSH certificate in SSH format.
+  bytes cert = 1;
+}
+
+// SignForSshRequest is a request to sign data with a private key that the
+// server has cached for the ssh_key. The ssh_key here must match a previous
+// successful call to ReissueSshCert. The private key used for the signature
+// will match the subject public key of the issued x509 certificate.
+message SignForSshRequest {
+  // SshKey uniquely identifies a SSH server, it must match the key of an SSH
+  // server from a previous successful call to ReissueSshCert.
+  SshKey ssh_key = 1;
+  // Digest is the bytes to sign.
+  bytes digest = 2;
+  // Hash is the hash function used to compute digest.
+  Hash hash = 3;
+  // PssSaltLength specifies the length of the salt added to the digest before a
+  // signature. Only used and required for RSA PSS signatures.
+  optional int32 pss_salt_length = 4;
+}
+
+// SignForSshResponse is a response for SignForSsh.
+message SignForSshResponse {
+  // Signature is the signature.
+  bytes signature = 1;
+}
+
+// UserMTLSCertRequest is a request for UserMTLSCert.
+message UserMTLSCertRequest {
+  string profile = 1;
+}
+
+// UserMTLSCertResponse is a response for UserMTLSCert.
+message UserMTLSCertResponse {
+  bytes cert = 1;
+}
+
+// SignForUserMTLSRequest is a request for SignForUserMTLS.
+message SignForUserMTLSRequest {
+  string profile = 1;
+  // Digest is the bytes to sign.
+  bytes digest = 2;
+  // Hash is the hash function used to compute digest.
+  Hash hash = 3;
+  // PssSaltLength specifies the length of the salt added to the digest before a
+  // signature. Only used and required for RSA PSS signatures.
+  optional int32 pss_salt_length = 4;
+}
+
+// SignForUserMTLSResponse is a response for SignForUserMTLS.
+message SignForUserMTLSResponse {
+  // Signature is the signature.
+  bytes signature = 1;
 }

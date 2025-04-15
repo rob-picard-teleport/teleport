@@ -44,6 +44,11 @@ const (
 	ClientApplicationService_OnNewConnection_FullMethodName          = "/teleport.lib.vnet.v1.ClientApplicationService/OnNewConnection"
 	ClientApplicationService_OnInvalidLocalPort_FullMethodName       = "/teleport.lib.vnet.v1.ClientApplicationService/OnInvalidLocalPort"
 	ClientApplicationService_GetTargetOSConfiguration_FullMethodName = "/teleport.lib.vnet.v1.ClientApplicationService/GetTargetOSConfiguration"
+	ClientApplicationService_ResolveSshInfo_FullMethodName           = "/teleport.lib.vnet.v1.ClientApplicationService/ResolveSshInfo"
+	ClientApplicationService_ReissueSshCert_FullMethodName           = "/teleport.lib.vnet.v1.ClientApplicationService/ReissueSshCert"
+	ClientApplicationService_SignForSsh_FullMethodName               = "/teleport.lib.vnet.v1.ClientApplicationService/SignForSsh"
+	ClientApplicationService_UserMTLSCert_FullMethodName             = "/teleport.lib.vnet.v1.ClientApplicationService/UserMTLSCert"
+	ClientApplicationService_SignForUserMTLS_FullMethodName          = "/teleport.lib.vnet.v1.ClientApplicationService/SignForUserMTLS"
 )
 
 // ClientApplicationServiceClient is the client API for ClientApplicationService service.
@@ -81,6 +86,17 @@ type ClientApplicationServiceClient interface {
 	OnInvalidLocalPort(ctx context.Context, in *OnInvalidLocalPortRequest, opts ...grpc.CallOption) (*OnInvalidLocalPortResponse, error)
 	// GetTargetOSConfiguration gets the target OS configuration.
 	GetTargetOSConfiguration(ctx context.Context, in *GetTargetOSConfigurationRequest, opts ...grpc.CallOption) (*GetTargetOSConfigurationResponse, error)
+	// ResolveSshInfo returns info for the given SSH server fqdn.
+	ResolveSshInfo(ctx context.Context, in *ResolveSshInfoRequest, opts ...grpc.CallOption) (*ResolveSshInfoResponse, error)
+	// ReissueSshCert issues a new SSH cert.
+	ReissueSshCert(ctx context.Context, in *ReissueSshCertRequest, opts ...grpc.CallOption) (*ReissueSshCertResponse, error)
+	// SignForSsh issues a signature with the private key associated with an SSH
+	// certificate previously issued for a requested SSH server.
+	SignForSsh(ctx context.Context, in *SignForSshRequest, opts ...grpc.CallOption) (*SignForSshResponse, error)
+	// UserMTLSCert returns the user mTLS certificate.
+	UserMTLSCert(ctx context.Context, in *UserMTLSCertRequest, opts ...grpc.CallOption) (*UserMTLSCertResponse, error)
+	// SignForUserMTLS signs a digest with the user TLS private key.
+	SignForUserMTLS(ctx context.Context, in *SignForUserMTLSRequest, opts ...grpc.CallOption) (*SignForUserMTLSResponse, error)
 }
 
 type clientApplicationServiceClient struct {
@@ -181,6 +197,56 @@ func (c *clientApplicationServiceClient) GetTargetOSConfiguration(ctx context.Co
 	return out, nil
 }
 
+func (c *clientApplicationServiceClient) ResolveSshInfo(ctx context.Context, in *ResolveSshInfoRequest, opts ...grpc.CallOption) (*ResolveSshInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveSshInfoResponse)
+	err := c.cc.Invoke(ctx, ClientApplicationService_ResolveSshInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientApplicationServiceClient) ReissueSshCert(ctx context.Context, in *ReissueSshCertRequest, opts ...grpc.CallOption) (*ReissueSshCertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReissueSshCertResponse)
+	err := c.cc.Invoke(ctx, ClientApplicationService_ReissueSshCert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientApplicationServiceClient) SignForSsh(ctx context.Context, in *SignForSshRequest, opts ...grpc.CallOption) (*SignForSshResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SignForSshResponse)
+	err := c.cc.Invoke(ctx, ClientApplicationService_SignForSsh_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientApplicationServiceClient) UserMTLSCert(ctx context.Context, in *UserMTLSCertRequest, opts ...grpc.CallOption) (*UserMTLSCertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserMTLSCertResponse)
+	err := c.cc.Invoke(ctx, ClientApplicationService_UserMTLSCert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientApplicationServiceClient) SignForUserMTLS(ctx context.Context, in *SignForUserMTLSRequest, opts ...grpc.CallOption) (*SignForUserMTLSResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SignForUserMTLSResponse)
+	err := c.cc.Invoke(ctx, ClientApplicationService_SignForUserMTLS_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClientApplicationServiceServer is the server API for ClientApplicationService service.
 // All implementations must embed UnimplementedClientApplicationServiceServer
 // for forward compatibility.
@@ -216,6 +282,17 @@ type ClientApplicationServiceServer interface {
 	OnInvalidLocalPort(context.Context, *OnInvalidLocalPortRequest) (*OnInvalidLocalPortResponse, error)
 	// GetTargetOSConfiguration gets the target OS configuration.
 	GetTargetOSConfiguration(context.Context, *GetTargetOSConfigurationRequest) (*GetTargetOSConfigurationResponse, error)
+	// ResolveSshInfo returns info for the given SSH server fqdn.
+	ResolveSshInfo(context.Context, *ResolveSshInfoRequest) (*ResolveSshInfoResponse, error)
+	// ReissueSshCert issues a new SSH cert.
+	ReissueSshCert(context.Context, *ReissueSshCertRequest) (*ReissueSshCertResponse, error)
+	// SignForSsh issues a signature with the private key associated with an SSH
+	// certificate previously issued for a requested SSH server.
+	SignForSsh(context.Context, *SignForSshRequest) (*SignForSshResponse, error)
+	// UserMTLSCert returns the user mTLS certificate.
+	UserMTLSCert(context.Context, *UserMTLSCertRequest) (*UserMTLSCertResponse, error)
+	// SignForUserMTLS signs a digest with the user TLS private key.
+	SignForUserMTLS(context.Context, *SignForUserMTLSRequest) (*SignForUserMTLSResponse, error)
 	mustEmbedUnimplementedClientApplicationServiceServer()
 }
 
@@ -252,6 +329,21 @@ func (UnimplementedClientApplicationServiceServer) OnInvalidLocalPort(context.Co
 }
 func (UnimplementedClientApplicationServiceServer) GetTargetOSConfiguration(context.Context, *GetTargetOSConfigurationRequest) (*GetTargetOSConfigurationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTargetOSConfiguration not implemented")
+}
+func (UnimplementedClientApplicationServiceServer) ResolveSshInfo(context.Context, *ResolveSshInfoRequest) (*ResolveSshInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveSshInfo not implemented")
+}
+func (UnimplementedClientApplicationServiceServer) ReissueSshCert(context.Context, *ReissueSshCertRequest) (*ReissueSshCertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReissueSshCert not implemented")
+}
+func (UnimplementedClientApplicationServiceServer) SignForSsh(context.Context, *SignForSshRequest) (*SignForSshResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SignForSsh not implemented")
+}
+func (UnimplementedClientApplicationServiceServer) UserMTLSCert(context.Context, *UserMTLSCertRequest) (*UserMTLSCertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UserMTLSCert not implemented")
+}
+func (UnimplementedClientApplicationServiceServer) SignForUserMTLS(context.Context, *SignForUserMTLSRequest) (*SignForUserMTLSResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SignForUserMTLS not implemented")
 }
 func (UnimplementedClientApplicationServiceServer) mustEmbedUnimplementedClientApplicationServiceServer() {
 }
@@ -437,6 +529,96 @@ func _ClientApplicationService_GetTargetOSConfiguration_Handler(srv interface{},
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClientApplicationService_ResolveSshInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveSshInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientApplicationServiceServer).ResolveSshInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientApplicationService_ResolveSshInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientApplicationServiceServer).ResolveSshInfo(ctx, req.(*ResolveSshInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClientApplicationService_ReissueSshCert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReissueSshCertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientApplicationServiceServer).ReissueSshCert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientApplicationService_ReissueSshCert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientApplicationServiceServer).ReissueSshCert(ctx, req.(*ReissueSshCertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClientApplicationService_SignForSsh_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignForSshRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientApplicationServiceServer).SignForSsh(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientApplicationService_SignForSsh_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientApplicationServiceServer).SignForSsh(ctx, req.(*SignForSshRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClientApplicationService_UserMTLSCert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserMTLSCertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientApplicationServiceServer).UserMTLSCert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientApplicationService_UserMTLSCert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientApplicationServiceServer).UserMTLSCert(ctx, req.(*UserMTLSCertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClientApplicationService_SignForUserMTLS_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignForUserMTLSRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientApplicationServiceServer).SignForUserMTLS(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientApplicationService_SignForUserMTLS_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientApplicationServiceServer).SignForUserMTLS(ctx, req.(*SignForUserMTLSRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClientApplicationService_ServiceDesc is the grpc.ServiceDesc for ClientApplicationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -479,6 +661,26 @@ var ClientApplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTargetOSConfiguration",
 			Handler:    _ClientApplicationService_GetTargetOSConfiguration_Handler,
+		},
+		{
+			MethodName: "ResolveSshInfo",
+			Handler:    _ClientApplicationService_ResolveSshInfo_Handler,
+		},
+		{
+			MethodName: "ReissueSshCert",
+			Handler:    _ClientApplicationService_ReissueSshCert_Handler,
+		},
+		{
+			MethodName: "SignForSsh",
+			Handler:    _ClientApplicationService_SignForSsh_Handler,
+		},
+		{
+			MethodName: "UserMTLSCert",
+			Handler:    _ClientApplicationService_UserMTLSCert_Handler,
+		},
+		{
+			MethodName: "SignForUserMTLS",
+			Handler:    _ClientApplicationService_SignForUserMTLS_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -6,6 +6,8 @@ import (
 
 	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/teleport/lib/auth/authclient"
+	"github.com/gravitational/teleport/lib/client"
+	"golang.org/x/crypto/ssh"
 )
 
 // ClientApplication is the common interface implemented by each VNet client
@@ -42,6 +44,9 @@ type ClientApplication interface {
 	// to a multi-port TCP app because the provided port does not match any of
 	// the TCP ports in the app spec.
 	OnInvalidLocalPort(ctx context.Context, appInfo *vnetv1.AppInfo, targetPort uint16)
+
+	TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error)
+	UserSSHConfig(ctx context.Context, sshInfo *vnetv1.SshInfo, username string) (*ssh.ClientConfig, error)
 }
 
 // ClusterClient is an interface defining the subset of [client.ClusterClient]
@@ -50,4 +55,5 @@ type ClusterClient interface {
 	CurrentCluster() authclient.ClientI
 	ClusterName() string
 	RootClusterName() string
+	SessionSSHConfig(ctx context.Context, user string, target client.NodeDetails) (*ssh.ClientConfig, error)
 }

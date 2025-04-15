@@ -144,3 +144,21 @@ func createTUNDevice(ctx context.Context) (tun.Device, string, error) {
 	}
 	return dev, name, nil
 }
+
+type generalTCPHandlerResolver struct {
+	resolvers []tcpHandlerResolver
+}
+
+func (r *generalTCPHandlerResolver) resolveTCPHandler(ctx context.Context, fqdn string) (*tcpHandlerSpec, error) {
+	for _, resolver := range r.resolvers {
+		handlerSpec, err := resolver.resolveTCPHandler(ctx, fqdn)
+		switch {
+		case errors.Is(err, errNoTCPHandler):
+			continue
+		case err != nil:
+			return nil, trace.Wrap(err)
+		}
+		return handlerSpec, nil
+	}
+	return nil, errNoTCPHandler
+}

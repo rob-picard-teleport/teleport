@@ -166,3 +166,47 @@ func (c *clientApplicationServiceClient) GetTargetOSConfiguration(ctx context.Co
 	}
 	return resp.GetTargetOsConfiguration(), nil
 }
+
+func (c *clientApplicationServiceClient) ResolveSSHInfo(ctx context.Context, fqdn string) (*vnetv1.SshInfo, error) {
+	resp, err := c.clt.ResolveSshInfo(ctx, &vnetv1.ResolveSshInfoRequest{
+		Fqdn: fqdn,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err, "calling ResolveSshInfo rpc")
+	}
+	return resp.GetSshInfo(), nil
+}
+func (c *clientApplicationServiceClient) ReissueSSHCert(ctx context.Context, sshInfo *vnetv1.SshInfo) ([]byte, error) {
+	resp, err := c.clt.ReissueSshCert(ctx, &vnetv1.ReissueSshCertRequest{
+		SshInfo: sshInfo,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err, "calling ReissueSSHCert rpc")
+	}
+	return resp.GetCert(), nil
+}
+func (c *clientApplicationServiceClient) SignForSSH(ctx context.Context, req *vnetv1.SignForSshRequest) ([]byte, error) {
+	resp, err := c.clt.SignForSsh(ctx, req)
+	if err != nil {
+		return nil, trace.Wrap(err, "calling SignForSsh rpc")
+	}
+	return resp.GetSignature(), nil
+}
+
+func (c *clientApplicationServiceClient) UserMTLSCert(ctx context.Context, profileName, clusterName string) ([]byte, error) {
+	resp, err := c.clt.UserMTLSCert(ctx, &vnetv1.UserMTLSCertRequest{
+		Profile: profileName,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return resp.GetCert(), nil
+}
+
+func (c *clientApplicationServiceClient) SignForUserMTLS(ctx context.Context, req *vnetv1.SignForUserMTLSReqest) ([]byte, error) {
+	resp, err := c.clt.SignForUserMTLS(ctx, req)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return resp.GetSignature(), nil
+}

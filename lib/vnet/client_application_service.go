@@ -37,7 +37,9 @@ type clientApplicationService struct {
 	// [vnetv1.ClientApplicationServiceServer]
 	vnetv1.UnsafeClientApplicationServiceServer
 
-	localAppProvider *localAppProvider
+	localAppProvider  *localAppProvider
+	localSSHProvider  *localSSHProvider
+	clientApplication ClientApplication
 
 	// networkStackInfo will receive any network stack info reported via
 	// ReportNetworkStackInfo.
@@ -55,11 +57,13 @@ type clientApplicationService struct {
 	appSignerCache map[appKey]crypto.Signer
 }
 
-func newClientApplicationService(localAppProvider *localAppProvider) *clientApplicationService {
+func newClientApplicationService(localAppProvider *localAppProvider, localSSHProvider *localSSHProvider) *clientApplicationService {
 	return &clientApplicationService{
-		localAppProvider: localAppProvider,
-		networkStackInfo: make(chan *vnetv1.NetworkStackInfo, 1),
-		appSignerCache:   make(map[appKey]crypto.Signer),
+		localAppProvider:  localAppProvider,
+		localSSHProvider:  localSSHProvider,
+		clientApplication: localAppProvider.ClientApplication,
+		networkStackInfo:  make(chan *vnetv1.NetworkStackInfo, 1),
+		appSignerCache:    make(map[appKey]crypto.Signer),
 	}
 }
 
@@ -241,4 +245,60 @@ func checkAppKey(key *vnetv1.AppKey) error {
 		return trace.BadParameter("app key name must be set")
 	}
 	return nil
+}
+
+func (s *clientApplicationService) ResolveSshInfo(ctx context.Context, req *vnetv1.ResolveSshInfoRequest) (*vnetv1.ResolveSshInfoResponse, error) {
+	sshInfo, err := s.localSSHProvider.ResolveSSHInfo(ctx, req.GetFqdn())
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &vnetv1.ResolveSshInfoResponse{
+		SshInfo: sshInfo,
+	}, nil
+}
+func (s *clientApplicationService) ReissueSshCert(ctx context.Context, req *vnetv1.ReissueSshCertRequest) (*vnetv1.ReissueSshCertResponse, error) {
+	return nil, trace.NotImplemented("")
+}
+func (s *clientApplicationService) SignForSsh(ctx context.Context, req *vnetv1.SignForSshRequest) (*vnetv1.SignForSshResponse, error) {
+	return nil, trace.NotImplemented("")
+}
+
+func (s *clientApplicationService) UserMTLSCert(ctx context.Context, req *vnetv1.UserMTLSCertRequest) (*vnetv1.UserMTLSCertResponse, error) {
+	tlsCfg, err := s.clientApplication.TeleportClientTLSConfig(ctx, req.GetProfile(), "")
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &vnetv1.UserMTLSCertResponse{
+		Cert: tlsCfg.Certificates[0].Certificate[0],
+	}, nil
+}
+
+func (s *clientApplicationService) SignForUserMTLS(ctx context.Context, req *vnetv1.SignForUserMTLSRequest) (*vnetv1.SignForUserMTLSResponse, error) {
+	tlsCfg, err := s.clientApplication.TeleportClientTLSConfig(ctx, req.GetProfile(), "")
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	var hash crypto.Hash
+	switch req.GetHash() {
+	case vnetv1.Hash_HASH_NONE:
+		hash = crypto.Hash(0)
+	case vnetv1.Hash_HASH_SHA256:
+		hash = crypto.SHA256
+	default:
+		return nil, trace.BadParameter("unsupported hash %v", req.GetHash())
+	}
+	opts := crypto.SignerOpts(hash)
+	if req.PssSaltLength != nil {
+		opts = &rsa.PSSOptions{
+			Hash:       hash,
+			SaltLength: int(*req.PssSaltLength),
+		}
+	}
+	signature, err := tlsCfg.Certificates[0].PrivateKey.(crypto.Signer).Sign(rand.Reader, req.GetDigest(), opts)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &vnetv1.SignForUserMTLSResponse{
+		Signature: signature,
+	}, nil
 }

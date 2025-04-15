@@ -85,10 +85,7 @@ func (r *tcpAppResolver) resolveTCPHandler(ctx context.Context, fqdn string) (*t
 		// and should only be done for unexpected errors
 		return nil, err
 	}
-	appHandler, err := r.newTCPAppHandler(ctx, appInfo)
-	if err != nil {
-		return nil, err
-	}
+	appHandler := r.newTCPAppHandler(ctx, appInfo)
 	return &tcpHandlerSpec{
 		ipv4CIDRRange: appInfo.GetIpv4CidrRange(),
 		tcpHandler:    appHandler,
@@ -106,7 +103,7 @@ type tcpAppHandler struct {
 	portToLocalProxy map[uint16]*alpnproxy.LocalProxy
 }
 
-func (r *tcpAppResolver) newTCPAppHandler(ctx context.Context, appInfo *vnetv1.AppInfo) (*tcpAppHandler, error) {
+func (r *tcpAppResolver) newTCPAppHandler(ctx context.Context, appInfo *vnetv1.AppInfo) *tcpAppHandler {
 	return &tcpAppHandler{
 		appInfo:     appInfo,
 		appProvider: r.appProvider,
@@ -114,7 +111,7 @@ func (r *tcpAppResolver) newTCPAppHandler(ctx context.Context, appInfo *vnetv1.A
 			"profile", appInfo.GetAppKey().GetProfile(), "leaf_cluster", appInfo.GetAppKey().GetLeafCluster(), "fqdn", appInfo.GetApp().GetPublicAddr()),
 		clock:            r.clock,
 		portToLocalProxy: make(map[uint16]*alpnproxy.LocalProxy),
-	}, nil
+	}
 }
 
 // getOrInitializeLocalProxy returns a separate local proxy for each port for multi-port apps. For

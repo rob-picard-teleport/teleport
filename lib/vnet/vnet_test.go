@@ -43,6 +43,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
 	grpccredentials "google.golang.org/grpc/credentials"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -58,6 +59,7 @@ import (
 	"github.com/gravitational/teleport/api/utils/grpc/interceptors"
 	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/teleport/lib/auth/authclient"
+	"github.com/gravitational/teleport/lib/client"
 	"github.com/gravitational/teleport/lib/cryptosuites"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
@@ -407,6 +409,13 @@ func (p *fakeClientApp) OnInvalidLocalPort(_ context.Context, _ *vnetv1.AppInfo,
 	p.onInvalidLocalPortCallCount.Add(1)
 }
 
+func (p *fakeClientApp) TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error) {
+	return nil, trace.NotImplemented("fakeClientApp.TeleportClientTLSConfig is not implemented")
+}
+func (p *fakeClientApp) UserSSHConfig(ctx context.Context, sshInfo *SSHInfo, username string) (*ssh.ClientConfig, error) {
+	return nil, trace.NotImplemented("fakeClientApp.UserSSHConfig is not implemented")
+}
+
 type fakeClusterClient struct {
 	authClient *fakeAuthClient
 }
@@ -421,6 +430,10 @@ func (c *fakeClusterClient) ClusterName() string {
 
 func (c *fakeClusterClient) RootClusterName() string {
 	return c.authClient.rootClusterName
+}
+
+func (c *fakeClusterClient) SessionSSHConfig(ctx context.Context, user string, target client.NodeDetails) (*ssh.ClientConfig, error) {
+	return nil, trace.NotImplemented("fakeClusterClient.SessionSSConfig is not implemented")
 }
 
 // fakeAuthClient is a fake auth client that answers GetResources requests with a static list of apps and

@@ -68,7 +68,8 @@ func runPlatformUserProcess(ctx context.Context, cfg *UserProcessConfig) (*Proce
 	)
 	clock := clockwork.NewRealClock()
 	appProvider := newLocalAppProvider(cfg.ClientApplication, clock)
-	svc := newClientApplicationService(appProvider)
+	sshProvider := newLocalSSHProvider(cfg.ClientApplication, clock)
+	svc := newClientApplicationService(appProvider, sshProvider)
 	vnetv1.RegisterClientApplicationServiceServer(grpcServer, svc)
 
 	pm, processCtx := newProcessManager()
