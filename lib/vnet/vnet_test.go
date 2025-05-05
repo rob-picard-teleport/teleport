@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -43,7 +44,6 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
 	grpccredentials "google.golang.org/grpc/credentials"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -412,8 +412,8 @@ func (p *fakeClientApp) OnInvalidLocalPort(_ context.Context, _ *vnetv1.AppInfo,
 func (p *fakeClientApp) TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error) {
 	return nil, trace.NotImplemented("fakeClientApp.TeleportClientTLSConfig is not implemented")
 }
-func (p *fakeClientApp) UserSSHConfig(ctx context.Context, sshInfo *SSHInfo, username string) (*ssh.ClientConfig, error) {
-	return nil, trace.NotImplemented("fakeClientApp.UserSSHConfig is not implemented")
+func (p *fakeClientApp) SessionSSHCert(ctx context.Context, sshInfo *vnetv1.SshInfo, username string) ([]byte, crypto.Signer, error) {
+	return nil, nil, trace.NotImplemented("fakeClientApp.UserSSHConfig is not implemented")
 }
 
 type fakeClusterClient struct {
@@ -432,8 +432,8 @@ func (c *fakeClusterClient) RootClusterName() string {
 	return c.authClient.rootClusterName
 }
 
-func (c *fakeClusterClient) SessionSSHConfig(ctx context.Context, user string, target client.NodeDetails) (*ssh.ClientConfig, error) {
-	return nil, trace.NotImplemented("fakeClusterClient.SessionSSConfig is not implemented")
+func (c *fakeClusterClient) SessionSSHCert(ctx context.Context, user string, target client.NodeDetails) ([]byte, crypto.Signer, error) {
+	return nil, nil, trace.NotImplemented("fakeClusterClient.SessionSSConfig is not implemented")
 }
 
 // fakeAuthClient is a fake auth client that answers GetResources requests with a static list of apps and
@@ -915,7 +915,8 @@ func testRemoteAppProvider(t *testing.T, alg cryptosuites.Algorithm) {
 		grpc.StreamInterceptor(interceptors.GRPCServerStreamErrorInterceptor),
 	)
 	appProvider := newLocalAppProvider(clientApp, clock)
-	svc := newClientApplicationService(appProvider)
+	sshProvider := newLocalSSHProvider(clientApp, clock)
+	svc := newClientApplicationService(appProvider, sshProvider)
 	vnetv1.RegisterClientApplicationServiceServer(grpcServer, svc)
 	listener, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)

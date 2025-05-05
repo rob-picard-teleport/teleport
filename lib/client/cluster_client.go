@@ -20,6 +20,7 @@ package client
 
 import (
 	"context"
+	"crypto"
 	"errors"
 	"net"
 	"time"
@@ -334,6 +335,79 @@ func (c *ClusterClient) SessionSSHConfig(ctx context.Context, user string, targe
 
 	sshConfig.Auth = []ssh.AuthMethod{am}
 	return sshConfig, nil
+}
+
+func (c *ClusterClient) SessionSSHCert(ctx context.Context, user string, target NodeDetails) ([]byte, crypto.Signer, error) {
+	ctx, span := c.Tracer.Start(
+		ctx,
+		"clusterClient/SessionSSHCert",
+		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
+		oteltrace.WithAttributes(
+			attribute.String("cluster", c.tc.SiteName),
+		),
+	)
+	defer span.End()
+
+	keyRing, err := c.tc.localAgent.GetKeyRing(target.Cluster, WithSSHCerts{})
+	if err != nil {
+		return nil, nil, trace.Wrap(MFARequiredUnknown(err))
+	}
+
+	if target.MFACheck != nil && !target.MFACheck.Required {
+		return keyRing.Cert, keyRing.SSHPrivateKey, nil
+	}
+
+	// Always connect to root for getting new credentials, but attempt to reuse
+	// the existing client if possible.
+	rootClusterName, err := keyRing.RootClusterName()
+	if err != nil {
+		return nil, nil, trace.Wrap(MFARequiredUnknown(err))
+	}
+
+	mfaClt := c
+	if target.Cluster != rootClusterName {
+		cfg, err := c.ProxyClient.ClientConfig(ctx, rootClusterName)
+		if err != nil {
+			return nil, nil, trace.Wrap(MFARequiredUnknown(err))
+		}
+
+		authClient, err := authclient.NewClient(cfg)
+		if err != nil {
+			return nil, nil, trace.Wrap(MFARequiredUnknown(err))
+		}
+
+		mfaClt = &ClusterClient{
+			tc:          c.tc,
+			ProxyClient: c.ProxyClient,
+			AuthClient:  authClient,
+			Tracer:      c.Tracer,
+			cluster:     rootClusterName,
+			root:        rootClusterName,
+		}
+		// only close the new auth client and not the copied cluster client.
+		defer authClient.Close()
+	}
+
+	log.DebugContext(ctx, "Attempting to issue a single-use user certificate with an MFA check")
+	newKeyRing, err := c.performSessionMFACeremony(ctx,
+		mfaClt,
+		ReissueParams{
+			NodeName:       nodeName(TargetNode{Addr: target.Addr}),
+			RouteToCluster: target.Cluster,
+			MFACheck:       target.MFACheck,
+		},
+		keyRing,
+	)
+	if err != nil {
+		if errors.Is(err, services.ErrSessionMFANotRequired) {
+			log.DebugContext(ctx, "Session MFA was not required, returning original cert")
+			return keyRing.Cert, keyRing.SSHPrivateKey, nil
+		}
+		return nil, nil, trace.Wrap(err)
+	}
+
+	log.DebugContext(ctx, "Issued single-use user certificate after an MFA check")
+	return newKeyRing.Cert, newKeyRing.SSHPrivateKey, nil
 }
 
 // prepareUserCertsRequest creates a [proto.UserCertsRequest] with the fields

@@ -18,6 +18,7 @@ package vnet
 
 import (
 	"context"
+	"crypto"
 	"crypto/tls"
 	"errors"
 	"sync"
@@ -26,7 +27,6 @@ import (
 
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
-	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/gravitational/teleport"
@@ -563,16 +563,16 @@ func (p *clientApplication) TeleportClientTLSConfig(ctx context.Context, profile
 	return tlsConfig, nil
 }
 
-func (p *clientApplication) UserSSHConfig(ctx context.Context, sshInfo *vnet.SSHInfo, username string) (*ssh.ClientConfig, error) {
-	clusterClient, err := p.getCachedClient(ctx, sshInfo.Profile, sshInfo.LeafCluster)
+func (p *clientApplication) SessionSSHCert(ctx context.Context, sshInfo *vnetv1.SshInfo, username string) ([]byte, crypto.Signer, error) {
+	clusterClient, err := p.getCachedClient(ctx, sshInfo.GetSshKey().GetProfile(), sshInfo.GetSshKey().GetLeafCluster())
 	if err != nil {
-		return nil, trace.Wrap(err)
+		return nil, nil, trace.Wrap(err)
 	}
-	sshConfig, err := clusterClient.SessionSSHConfig(ctx, username, client.NodeDetails{
-		Addr:    sshInfo.Addr,
-		Cluster: sshInfo.Cluster,
+	sshCert, signer, err := clusterClient.SessionSSHCert(ctx, username, client.NodeDetails{
+		Addr:    sshInfo.GetSshKey().GetHostname() + ":0",
+		Cluster: sshInfo.GetCluster(),
 	})
-	return sshConfig, trace.Wrap(err, "getting session SSH config")
+	return sshCert, signer, trace.Wrap(err, "getting session SSH cert")
 }
 
 type usageReporter interface {

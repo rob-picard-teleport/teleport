@@ -21,9 +21,10 @@ import (
 	"errors"
 	"strings"
 
-	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+
+	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 )
 
 type localSSHProvider struct {
@@ -105,6 +106,7 @@ func (p *localSSHProvider) resolveSSHInfoForCluster(
 ) (*vnetv1.SshInfo, error) {
 	target := stripSSHSuffix(fqdn, leafClusterName, clusterClient.RootClusterName())
 	log := log.With("profile", profileName, "leaf_cluster", leafClusterName, "fqdn", fqdn, "target", target)
+	log.DebugContext(ctx, "Resolving SSH info")
 	clusterConfig, err := p.clusterConfigCache.GetClusterConfig(ctx, clusterClient)
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to get cluster VNet config for matching SSH node", "error", err)
@@ -128,5 +130,7 @@ func (p *localSSHProvider) resolveSSHInfoForCluster(
 }
 
 func stripSSHSuffix(s, leafClusterName, rootClusterName string) string {
-	return strings.TrimSuffix(strings.TrimSuffix(s, rootClusterName), leafClusterName)
+	stripped := strings.TrimSuffix(s, fullyQualify(rootClusterName))
+	stripped = strings.TrimSuffix(stripped, fullyQualify(leafClusterName))
+	return strings.TrimSuffix(stripped, ".")
 }

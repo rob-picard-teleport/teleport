@@ -21,7 +21,14 @@ import (
 	"crypto/tls"
 	"log/slog"
 	"net"
-	"sync/atomic"
+	"sync"
+	"time"
+
+	"github.com/gravitational/trace"
+	"github.com/jonboulle/clockwork"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/sync/singleflight"
+	"google.golang.org/grpc"
 
 	"github.com/gravitational/teleport"
 	proxyclient "github.com/gravitational/teleport/api/client/proxy"
@@ -29,13 +36,6 @@ import (
 	"github.com/gravitational/teleport/api/utils/grpc/interceptors"
 	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/teleport/lib/cryptosuites"
-	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/trace"
-	"github.com/jonboulle/clockwork"
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/singleflight"
-	"google.golang.org/grpc"
 )
 
 type sshProvider interface {
@@ -45,10 +45,10 @@ type sshProvider interface {
 }
 
 type sshResolver struct {
-	sshProvider     sshProvider
-	log             *slog.Logger
-	clock           clockwork.Clock
-	sshServerConfig *ssh.ServerConfig
+	sshProvider sshProvider
+	log         *slog.Logger
+	clock       clockwork.Clock
+	hostSigner  ssh.Signer
 }
 
 func newSSHResolver(sshProvider sshProvider, clock clockwork.Clock) *sshResolver {
@@ -60,15 +60,11 @@ func newSSHResolver(sshProvider sshProvider, clock clockwork.Clock) *sshResolver
 	if err != nil {
 		panic(err)
 	}
-	sshServerConfig := &ssh.ServerConfig{
-		NoClientAuth: true,
-	}
-	sshServerConfig.AddHostKey(hostSigner)
 	return &sshResolver{
-		sshProvider:     sshProvider,
-		log:             log.With(teleport.ComponentKey, "VNet.SSHResolver"),
-		clock:           clock,
-		sshServerConfig: sshServerConfig,
+		sshProvider: sshProvider,
+		log:         log.With(teleport.ComponentKey, "VNet.SSHResolver"),
+		clock:       clock,
+		hostSigner:  hostSigner,
 	}
 }
 
@@ -86,19 +82,19 @@ func (r sshResolver) resolveTCPHandler(ctx context.Context, fqdn string) (*tcpHa
 
 func (r *sshResolver) newSSHHandler(ctx context.Context, sshInfo *vnetv1.SshInfo) *sshHandler {
 	return &sshHandler{
-		sshInfo:         sshInfo,
-		sshProvider:     r.sshProvider,
-		sshServerConfig: r.sshServerConfig,
+		sshInfo:     sshInfo,
+		sshProvider: r.sshProvider,
+		hostSigner:  r.hostSigner,
 	}
 }
 
 type sshHandler struct {
-	sshInfo         *vnetv1.SshInfo
-	sshProvider     sshProvider
-	sshServerConfig *ssh.ServerConfig
+	sshInfo     *vnetv1.SshInfo
+	sshProvider sshProvider
+	hostSigner  ssh.Signer
 
 	fg              singleflight.Group
-	sshClientConfig atomic.Pointer[ssh.ClientConfig]
+	sshClientConfig sync.Map
 }
 
 func (h *sshHandler) handleTCPConnector(ctx context.Context, localPort uint16, connector func() (net.Conn, error)) error {
@@ -114,19 +110,37 @@ func (h *sshHandler) handleTCPConnector(ctx context.Context, localPort uint16, c
 	}
 	defer localTCPConn.Close()
 
-	serverConn, chans, requests, err := ssh.NewServerConn(localTCPConn, h.sshServerConfig)
+	var targetClient *ssh.Client
+	var preAuthConn ssh.ServerPreAuthConn
+	serverConfig := &ssh.ServerConfig{
+		PreAuthConnCallback: func(conn ssh.ServerPreAuthConn) {
+			preAuthConn = conn
+		},
+		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			targetClient, err = h.dialTargetSSH(ctx, targetTCPConn, conn.User())
+			if err != nil {
+				err = trace.Wrap(err, "dialing target node")
+				go func() { preAuthConn.SendAuthBanner(err.Error()) }()
+				time.Sleep(500 * time.Millisecond)
+				return nil, err
+			}
+			return nil, nil
+		},
+	}
+	serverConfig.AddHostKey(h.hostSigner)
+	serverConn, chans, requests, err := ssh.NewServerConn(localTCPConn, serverConfig)
 	if err != nil {
+		if targetClient != nil {
+			targetClient.Close()
+		}
 		return trace.Wrap(err, "accepting incoming SSH conn")
 	}
-	defer serverConn.Close()
+	defer func() {
+		serverConn.Close()
+		targetClient.Close()
+	}()
 
-	sshClient, err := h.dialTargetSSH(ctx, targetTCPConn, serverConn.User())
-	if err != nil {
-		return trace.Wrap(err, "initiating SSH connection to target")
-	}
-	defer sshClient.Close()
-
-	return trace.Wrap(forwardSSHConnection(ctx, sshClient, serverConn, chans, requests), "proxying SSH connection")
+	return trace.Wrap(proxySSHConnection(ctx, targetClient, chans, requests), "proxying SSH connection")
 }
 
 func (h *sshHandler) dialTargetTCP(ctx context.Context) (net.Conn, error) {
@@ -147,10 +161,11 @@ func (h *sshHandler) dialTargetTCP(ctx context.Context) (net.Conn, error) {
 	if err != nil {
 		return nil, trace.Wrap(err, "creating proxy client")
 	}
+	target := h.sshInfo.GetSshKey().GetHostname() + ":0"
 	log.DebugContext(ctx, "Dialing target host",
-		"target", h.sshInfo.SshKey.Hostname,
+		"target", target,
 	)
-	targetConn, _, err := pclt.DialHost(ctx, h.sshInfo.SshKey.Hostname, h.sshInfo.Cluster, nil /*keyRing*/)
+	targetConn, _, err := pclt.DialHost(ctx, target, h.sshInfo.Cluster, nil /*keyRing*/)
 	return targetConn, trace.Wrap(err)
 }
 
@@ -170,7 +185,7 @@ func (h *sshHandler) dialTargetSSH(ctx context.Context, tcpConn net.Conn, userna
 }
 
 func (h *sshHandler) retryDialTargetSSH(ctx context.Context, username string) (*ssh.Client, error) {
-	h.sshClientConfig.Store(nil)
+	h.sshClientConfig.Delete(username)
 	sshClientConfig, err := h.userSSHConfig(ctx, username)
 	if err != nil {
 		return nil, trace.Wrap(err, "getting fresh SSH client config")
@@ -188,161 +203,25 @@ func (h *sshHandler) retryDialTargetSSH(ctx context.Context, username string) (*
 }
 
 func (h *sshHandler) userSSHConfig(ctx context.Context, username string) (*ssh.ClientConfig, error) {
-	if c := h.sshClientConfig.Load(); c != nil {
-		return c, nil
+	if c, ok := h.sshClientConfig.Load(username); ok {
+		return c.(*ssh.ClientConfig), nil
 	}
-	_, err, _ := h.fg.Do("", func() (any, error) {
-		if c := h.sshClientConfig.Load(); c != nil {
-			return nil, nil
+	_, err, _ := h.fg.Do(username, func() (any, error) {
+		if c, ok := h.sshClientConfig.Load(username); ok {
+			return c.(*ssh.ClientConfig), nil
 		}
 		c, err := h.sshProvider.UserSSHConfig(ctx, h.sshInfo, username)
 		if err != nil {
 			return nil, trace.Wrap(err, "getting user SSH client config")
 		}
-		h.sshClientConfig.Store(c)
+		h.sshClientConfig.Store(username, c)
 		return nil, nil
 	})
-	return h.sshClientConfig.Load(), trace.Wrap(err)
-}
-
-// forwardSSHConnection forwards all SSH traffic—both global requests and channels—
-// from serverConn to targetClient, and vice versa.
-func forwardSSHConnection(
-	ctx context.Context,
-	targetClient *ssh.Client,
-	serverConn *ssh.ServerConn,
-	channels <-chan ssh.NewChannel,
-	requests <-chan *ssh.Request,
-) error {
-	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return forwardGlobalRequests(ctx, targetClient, requests)
-	})
-	g.Go(func() error {
-		return forwardChannels(ctx, g, targetClient, channels)
-	})
-	return trace.Wrap(g.Wait(), "forwarding SSH connection")
-}
-
-func forwardGlobalRequests(
-	ctx context.Context,
-	targetClient *ssh.Client,
-	requests <-chan *ssh.Request,
-) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case req, ok := <-requests:
-			if !ok {
-				return nil
-			}
-			ok, reply, err := targetClient.SendRequest(req.Type, req.WantReply, req.Payload)
-			if err != nil {
-				err = trace.Wrap(err, "forwarding global request to target")
-				if replyErr := req.Reply(false, nil); replyErr != nil {
-					return trace.NewAggregate(err, trace.Wrap(replyErr, "replying to request with error"))
-				}
-				return err
-			}
-			if err := req.Reply(ok, reply); err != nil {
-				return trace.Wrap(err, "forwarding reply from target back to client")
-			}
-		}
+	if err != nil {
+		return nil, trace.Wrap(err)
 	}
-}
-
-func forwardChannels(
-	ctx context.Context,
-	g *errgroup.Group,
-	targetClient *ssh.Client,
-	channels <-chan ssh.NewChannel,
-) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case newChan, ok := <-channels:
-			if !ok {
-				return nil
-			}
-			// Open a corresponding channel to the target.
-			targetChan, targetRequests, err := targetClient.OpenChannel(newChan.ChannelType(), newChan.ExtraData())
-			if err != nil {
-				err = trace.Wrap(err, "failed to open channel on target")
-				if rejectErr := newChan.Reject(ssh.ConnectionFailed, err.Error()); rejectErr != nil {
-					return trace.NewAggregate(err, rejectErr)
-				}
-				return err
-			}
-			// Accept the incoming channel request.
-			serverChan, serverRequests, err := newChan.Accept()
-			if err != nil {
-				targetChan.Close()
-				return trace.Wrap(err, "accepting incoming channel request")
-			}
-			forwardChannel(ctx, g,
-				serverChan, serverRequests,
-				targetChan, targetRequests,
-			)
-		}
+	c, ok := h.sshClientConfig.Load(username)
+	if !ok {
 	}
-}
-
-func forwardChannel(
-	ctx context.Context,
-	g *errgroup.Group,
-	serverChan ssh.Channel, serverRequests <-chan *ssh.Request,
-	targetChan ssh.Channel, targetRequests <-chan *ssh.Request,
-) {
-	g.Go(func() error {
-		// This will close serverChan and targetChan before returning.
-		if err := utils.ProxyConn(ctx, serverChan, targetChan); err != nil {
-			log.InfoContext(ctx, "Proxying SSH channel failed",
-				"error", err)
-		}
-		return nil
-	})
-	g.Go(func() error {
-		if err := forwardChannelRequests(ctx, targetChan, serverChan, serverRequests); err != nil {
-			log.InfoContext(ctx, "Forwarding channel requests from server to target failed",
-				"error", err)
-		}
-		return nil
-	})
-	g.Go(func() error {
-		if err := forwardChannelRequests(ctx, serverChan, targetChan, targetRequests); err != nil {
-			log.InfoContext(ctx, "Forwarding channel requests from target to server failed",
-				"error", err)
-		}
-		return nil
-	})
-}
-
-func forwardChannelRequests(
-	ctx context.Context,
-	dst, src ssh.Channel,
-	requests <-chan *ssh.Request,
-) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case req, ok := <-requests:
-			if !ok {
-				return nil
-			}
-			ok, err := dst.SendRequest(req.Type, req.WantReply, req.Payload)
-			if err != nil {
-				err = trace.Wrap(err, "forwarding channel request")
-				if replyErr := req.Reply(false, nil); replyErr != nil {
-					return trace.NewAggregate(err, replyErr)
-				}
-				return err
-			}
-			if err := req.Reply(ok, nil); err != nil {
-				return trace.Wrap(err, "forwarding reply to channel request")
-			}
-		}
-	}
+	return c.(*ssh.ClientConfig), nil
 }

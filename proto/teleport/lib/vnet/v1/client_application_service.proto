@@ -190,6 +190,12 @@ message SignForAppRequest {
   // TargetPort of a previous successful call to ReissueAppCert for an app
   // matching AppKey.
   uint32 target_port = 2;
+  // Sign holds signature request details.
+  SignRequest sign = 3;
+}
+
+// SignRequest holds signature request details.
+message SignRequest {
   // Digest is the bytes to sign.
   bytes digest = 3;
   // Hash is the hash function used to compute digest.
@@ -308,6 +314,9 @@ message ResolveSshInfoResponse {
 message ReissueSshCertRequest {
   // SshInfo contains info about the SSH server.
   SshInfo ssh_info = 1;
+  // User is the SSH user the cert is needed for, in case per-session MFA is
+  // required.
+  string user = 2;
 }
 
 // ReissueSshCertResponse is a response for ReissueSshCert.
@@ -324,13 +333,11 @@ message SignForSshRequest {
   // SshKey uniquely identifies a SSH server, it must match the key of an SSH
   // server from a previous successful call to ReissueSshCert.
   SshKey ssh_key = 1;
-  // Digest is the bytes to sign.
-  bytes digest = 2;
-  // Hash is the hash function used to compute digest.
-  Hash hash = 3;
-  // PssSaltLength specifies the length of the salt added to the digest before a
-  // signature. Only used and required for RSA PSS signatures.
-  optional int32 pss_salt_length = 4;
+  // User is the SSH user the cert was issued for, in case per-session MFA was
+  // required.
+  string user = 2;
+  // Sign holds signature request details.
+  SignRequest sign = 3;
 }
 
 // SignForSshResponse is a response for SignForSsh.
@@ -351,14 +358,10 @@ message UserMTLSCertResponse {
 
 // SignForUserMTLSRequest is a request for SignForUserMTLS.
 message SignForUserMTLSRequest {
+  // Profile is the user profile to sign for.
   string profile = 1;
-  // Digest is the bytes to sign.
-  bytes digest = 2;
-  // Hash is the hash function used to compute digest.
-  Hash hash = 3;
-  // PssSaltLength specifies the length of the salt added to the digest before a
-  // signature. Only used and required for RSA PSS signatures.
-  optional int32 pss_salt_length = 4;
+  // Sign holds signature request details.
+  SignRequest sign = 2;
 }
 
 // SignForUserMTLSResponse is a response for SignForUserMTLS.

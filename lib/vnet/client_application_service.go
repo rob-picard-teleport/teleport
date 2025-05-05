@@ -45,16 +45,16 @@ type clientApplicationService struct {
 	// ReportNetworkStackInfo.
 	networkStackInfo chan *vnetv1.NetworkStackInfo
 
-	// mu protects appSignerCache
+	// mu protects signerCache
 	mu sync.Mutex
-	// appSignerCache caches the crypto.Signer for each certificate issued by
+	// signerCache caches the crypto.Signer for each certificate issued by
 	// ReissueAppCert so that SignForApp can later use that signer.
 	//
 	// Signers are never deleted from the map. When the cert expires, the local
 	// proxy in the admin process will detect the cert expiry and call
 	// ReissueAppCert, which will overwrite the signer for the app with a new
 	// one.
-	appSignerCache map[appKey]crypto.Signer
+	signerCache map[signerKey]crypto.Signer
 }
 
 func newClientApplicationService(localAppProvider *localAppProvider, localSSHProvider *localSSHProvider) *clientApplicationService {
@@ -63,7 +63,7 @@ func newClientApplicationService(localAppProvider *localAppProvider, localSSHPro
 		localSSHProvider:  localSSHProvider,
 		clientApplication: localAppProvider.ClientApplication,
 		networkStackInfo:  make(chan *vnetv1.NetworkStackInfo, 1),
-		appSignerCache:    make(map[appKey]crypto.Signer),
+		signerCache:       make(map[signerKey]crypto.Signer),
 	}
 }
 
@@ -135,8 +135,26 @@ func (s *clientApplicationService) ReissueAppCert(ctx context.Context, req *vnet
 // It uses a cached signer for the requested app, which must have previously
 // been issued a certificate via [clientApplicationService.ReissueAppCert].
 func (s *clientApplicationService) SignForApp(ctx context.Context, req *vnetv1.SignForAppRequest) (*vnetv1.SignForAppResponse, error) {
-	log.DebugContext(ctx, "Got SignForApp request",
-		"app", req.GetAppKey(),
+	log.DebugContext(ctx, "Got SignForApp request", "app", req.GetAppKey())
+	appKey := req.GetAppKey()
+	if err := checkAppKey(appKey); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	signer, ok := s.getSignerForApp(req.GetAppKey(), uint16(req.GetTargetPort()))
+	if !ok {
+		return nil, trace.BadParameter("no signer for app %v", appKey)
+	}
+	signature, err := sign(ctx, req.GetSign(), signer)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &vnetv1.SignForAppResponse{
+		Signature: signature,
+	}, nil
+}
+
+func sign(ctx context.Context, req *vnetv1.SignRequest, signer crypto.Signer) ([]byte, error) {
+	log.DebugContext(ctx, "Signing on behalf of user",
 		"hash", req.GetHash(),
 		"is_rsa_pss", req.PssSaltLength != nil,
 		"pss_salt_len", req.GetPssSaltLength(),
@@ -158,35 +176,20 @@ func (s *clientApplicationService) SignForApp(ctx context.Context, req *vnetv1.S
 			SaltLength: int(*req.PssSaltLength),
 		}
 	}
-
-	appKey := req.GetAppKey()
-	if err := checkAppKey(appKey); err != nil {
-		return nil, trace.Wrap(err)
-	}
-	signer, ok := s.getSignerForApp(req.GetAppKey(), uint16(req.GetTargetPort()))
-	if !ok {
-		return nil, trace.BadParameter("no signer for app %v", appKey)
-	}
-
 	signature, err := signer.Sign(rand.Reader, req.GetDigest(), opts)
-	if err != nil {
-		return nil, trace.Wrap(err, "signing for app %v", appKey)
-	}
-	return &vnetv1.SignForAppResponse{
-		Signature: signature,
-	}, nil
+	return signature, trace.Wrap(err, "signing digest")
 }
 
 func (s *clientApplicationService) setSignerForApp(appKey *vnetv1.AppKey, targetPort uint16, signer crypto.Signer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.appSignerCache[newAppKey(appKey, targetPort)] = signer
+	s.signerCache[newAppSignerKey(appKey, targetPort)] = signer
 }
 
 func (s *clientApplicationService) getSignerForApp(appKey *vnetv1.AppKey, targetPort uint16) (crypto.Signer, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	signer, ok := s.appSignerCache[newAppKey(appKey, targetPort)]
+	signer, ok := s.signerCache[newAppSignerKey(appKey, targetPort)]
 	return signer, ok
 }
 
@@ -207,19 +210,24 @@ func (s *clientApplicationService) OnInvalidLocalPort(ctx context.Context, req *
 	return &vnetv1.OnInvalidLocalPortResponse{}, nil
 }
 
-// appKey is a clone of [vnetv1.AppKey] that is not a protobuf type so it can be
-// used as a key in maps.
-type appKey struct {
-	profile, leafCluster, app string
-	port                      uint16
+// signerKey is a key used to identify a signer for a specific user certificate.
+type signerKey struct {
+	profile     string
+	leafCluster string
+
+	app     string
+	appPort uint16
+
+	sshHostname string
+	sshUser     string
 }
 
-func newAppKey(protoAppKey *vnetv1.AppKey, port uint16) appKey {
-	return appKey{
+func newAppSignerKey(protoAppKey *vnetv1.AppKey, port uint16) signerKey {
+	return signerKey{
 		profile:     protoAppKey.GetProfile(),
 		leafCluster: protoAppKey.GetLeafCluster(),
 		app:         protoAppKey.GetName(),
-		port:        port,
+		appPort:     port,
 	}
 }
 
@@ -256,11 +264,54 @@ func (s *clientApplicationService) ResolveSshInfo(ctx context.Context, req *vnet
 		SshInfo: sshInfo,
 	}, nil
 }
+
 func (s *clientApplicationService) ReissueSshCert(ctx context.Context, req *vnetv1.ReissueSshCertRequest) (*vnetv1.ReissueSshCertResponse, error) {
-	return nil, trace.NotImplemented("")
+	sshKey := req.GetSshInfo().GetSshKey()
+	sshCert, signer, err := s.clientApplication.SessionSSHCert(ctx, req.GetSshInfo(), req.GetUser())
+	if err != nil {
+		return nil, trace.Wrap(err, "getting session SSH cert for host:%s user:%s", sshKey.GetHostname(), req.GetUser())
+	}
+	s.setCachedSigner(newSSHSignerKey(sshKey, req.GetUser()), signer)
+	return &vnetv1.ReissueSshCertResponse{
+		Cert: sshCert,
+	}, nil
 }
+
 func (s *clientApplicationService) SignForSsh(ctx context.Context, req *vnetv1.SignForSshRequest) (*vnetv1.SignForSshResponse, error) {
-	return nil, trace.NotImplemented("")
+	signerKey := newSSHSignerKey(req.GetSshKey(), req.GetUser())
+	signer, ok := s.getCachedSigner(signerKey)
+	if !ok {
+		return nil, trace.NotFound("no signer for %v", signerKey)
+	}
+	signature, err := sign(ctx, req.GetSign(), signer)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &vnetv1.SignForSshResponse{
+		Signature: signature,
+	}, nil
+}
+
+func newSSHSignerKey(sshKey *vnetv1.SshKey, user string) signerKey {
+	return signerKey{
+		profile:     sshKey.GetProfile(),
+		leafCluster: sshKey.GetLeafCluster(),
+		sshHostname: sshKey.GetHostname(),
+		sshUser:     user,
+	}
+}
+
+func (s *clientApplicationService) setCachedSigner(key signerKey, signer crypto.Signer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.signerCache[key] = signer
+}
+
+func (s *clientApplicationService) getCachedSigner(key signerKey) (crypto.Signer, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	signer, ok := s.signerCache[key]
+	return signer, ok
 }
 
 func (s *clientApplicationService) UserMTLSCert(ctx context.Context, req *vnetv1.UserMTLSCertRequest) (*vnetv1.UserMTLSCertResponse, error) {
@@ -278,23 +329,14 @@ func (s *clientApplicationService) SignForUserMTLS(ctx context.Context, req *vne
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	var hash crypto.Hash
-	switch req.GetHash() {
-	case vnetv1.Hash_HASH_NONE:
-		hash = crypto.Hash(0)
-	case vnetv1.Hash_HASH_SHA256:
-		hash = crypto.SHA256
-	default:
-		return nil, trace.BadParameter("unsupported hash %v", req.GetHash())
+	if len(tlsCfg.Certificates) < 1 {
+		return nil, trace.BadParameter("User TLS config has no certificates")
 	}
-	opts := crypto.SignerOpts(hash)
-	if req.PssSaltLength != nil {
-		opts = &rsa.PSSOptions{
-			Hash:       hash,
-			SaltLength: int(*req.PssSaltLength),
-		}
+	signer, ok := tlsCfg.Certificates[0].PrivateKey.(crypto.Signer)
+	if !ok {
+		return nil, trace.BadParameter("TLS private key does not implemente crypto.Signer")
 	}
-	signature, err := tlsCfg.Certificates[0].PrivateKey.(crypto.Signer).Sign(rand.Reader, req.GetDigest(), opts)
+	signature, err := sign(ctx, req.GetSign(), signer)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

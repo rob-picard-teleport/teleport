@@ -119,6 +119,11 @@ func RunDarwinAdminProcess(ctx context.Context, config daemon.Config) error {
 func newNetworkStackConfig(tun tunDevice, clt *clientApplicationServiceClient) (*networkStackConfig, error) {
 	appProvider := newRemoteAppProvider(clt)
 	appResolver := newTCPAppResolver(appProvider, clockwork.NewRealClock())
+	sshProvider := newRemoteSSHProvider(clt)
+	sshResolver := newSSHResolver(sshProvider, clockwork.NewRealClock())
+	tcpHandlerResolver := &generalTCPHandlerResolver{
+		resolvers: []tcpHandlerResolver{appResolver, sshResolver},
+	}
 	ipv6Prefix, err := newIPv6Prefix()
 	if err != nil {
 		return nil, trace.Wrap(err, "creating new IPv6 prefix")
@@ -128,7 +133,7 @@ func newNetworkStackConfig(tun tunDevice, clt *clientApplicationServiceClient) (
 		tunDevice:          tun,
 		ipv6Prefix:         ipv6Prefix,
 		dnsIPv6:            dnsIPv6,
-		tcpHandlerResolver: appResolver,
+		tcpHandlerResolver: tcpHandlerResolver,
 	}, nil
 }
 

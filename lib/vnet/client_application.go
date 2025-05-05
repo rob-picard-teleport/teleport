@@ -1,13 +1,29 @@
+// Teleport
+// Copyright (C) 2025 Gravitational, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 package vnet
 
 import (
 	"context"
+	"crypto"
 	"crypto/tls"
 
 	vnetv1 "github.com/gravitational/teleport/gen/proto/go/teleport/lib/vnet/v1"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/client"
-	"golang.org/x/crypto/ssh"
 )
 
 // ClientApplication is the common interface implemented by each VNet client
@@ -46,7 +62,7 @@ type ClientApplication interface {
 	OnInvalidLocalPort(ctx context.Context, appInfo *vnetv1.AppInfo, targetPort uint16)
 
 	TeleportClientTLSConfig(ctx context.Context, profileName, clusterName string) (*tls.Config, error)
-	UserSSHConfig(ctx context.Context, sshInfo *vnetv1.SshInfo, username string) (*ssh.ClientConfig, error)
+	SessionSSHCert(ctx context.Context, sshInfo *vnetv1.SshInfo, username string) ([]byte, crypto.Signer, error)
 }
 
 // ClusterClient is an interface defining the subset of [client.ClusterClient]
@@ -55,5 +71,5 @@ type ClusterClient interface {
 	CurrentCluster() authclient.ClientI
 	ClusterName() string
 	RootClusterName() string
-	SessionSSHConfig(ctx context.Context, user string, target client.NodeDetails) (*ssh.ClientConfig, error)
+	SessionSSHCert(ctx context.Context, user string, target client.NodeDetails) ([]byte, crypto.Signer, error)
 }
