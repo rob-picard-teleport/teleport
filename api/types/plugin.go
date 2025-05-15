@@ -37,6 +37,7 @@ var AllPluginTypes = []PluginType{
 	PluginTypeOpenAI,
 	PluginTypeOkta,
 	PluginTypeJamf,
+	PluginTypeIntune,
 	PluginTypeJira,
 	PluginTypeOpsgenie,
 	PluginTypePagerDuty,
@@ -62,6 +63,8 @@ const (
 	PluginTypeOkta = "okta"
 	// PluginTypeJamf is the Jamf MDM plugin
 	PluginTypeJamf = "jamf"
+	// PluginTypeIntune is the Intune MDM plugin
+	PluginTypeIntune = "intune"
 	// PluginTypeJira is the Jira access plugin
 	PluginTypeJira = "jira"
 	// PluginTypeOpsgenie is the Opsgenie access request plugin
@@ -555,6 +558,8 @@ func (p *PluginV1) GetType() PluginType {
 		return PluginTypeOkta
 	case *PluginSpecV1_Jamf:
 		return PluginTypeJamf
+	case *PluginSpecV1_Intune:
+		return PluginTypeIntune
 	case *PluginSpecV1_Jira:
 		return PluginTypeJira
 	case *PluginSpecV1_Opsgenie:
