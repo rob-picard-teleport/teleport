@@ -49,12 +49,18 @@ type LDAPConfig struct {
 	ServerName string //nolint:unused // False-positive
 	// CA is an optional CA cert to be used for verification if InsecureSkipVerify is set to false.
 	CA *x509.Certificate //nolint:unused // False-positive
+	// Automatically locate the LDAP server using DNS SRV records.
+	// https://ldap.com/dns-srv-records-for-ldap/
+	LocateServer bool //nolint:unused // False-positive
+	// Use LDAP site to locate servers from a specific logical site.
+	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/b645c125-a7da-4097-84a1-2fa7cea07714#gt_8abdc986-5679-42d9-ad76-b11eb5a0daba
+	Site string //nolint:unused // False-positive
 }
 
 // Check verifies this LDAPConfig
 func (cfg LDAPConfig) Check() error {
-	if cfg.Addr == "" {
-		return trace.BadParameter("missing Addr in LDAPConfig")
+	if cfg.Addr == "" && !cfg.LocateServer {
+		return trace.BadParameter("Addr is required if locate_server is false")
 	}
 	if cfg.Domain == "" {
 		return trace.BadParameter("missing Domain in LDAPConfig")

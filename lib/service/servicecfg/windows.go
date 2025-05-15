@@ -162,4 +162,8 @@ type LDAPConfig struct {
 	ServerName string
 	// CA is an optional CA cert to be used for verification if InsecureSkipVerify is set to false.
 	CA *x509.Certificate
+	// Automatically locate the LDAP server using DNS SRV records.
+	LocateServer bool
+	// Use LDAP site to locate servers from a specific logical site.
+	Site string
 }
