@@ -35,6 +35,7 @@ import (
 type LDAPConfig struct {
 	// Addr is the LDAP server address in the form host:port.
 	// Standard port is 636 for LDAPS.
+	// Deprecated: prefer LocateServer for auto discovery.
 	Addr string //nolint:unused // False-positive
 	// Domain is an Active Directory domain name, like "example.com".
 	Domain string //nolint:unused // False-positive
