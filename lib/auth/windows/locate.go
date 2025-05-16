@@ -21,7 +21,6 @@ package windows
 import (
 	"context"
 	"net"
-	"strconv"
 
 	"github.com/gravitational/trace"
 )
@@ -37,10 +36,10 @@ func LocateLDAPServer(ctx context.Context, resolver *net.Resolver, domain string
 		return nil, trace.Wrap(err, "looking up SRV records for %v", domain)
 	}
 
-	// note: LookupSRV already returns records sorted by priority
+	// note: LookupSRV already returns records sorted by priority and takes in to account weights
 	result := make([]string, 0, len(records))
 	for _, record := range records {
-		result = append(result, net.JoinHostPort(record.Target, strconv.Itoa(int(record.Port))))
+		result = append(result, net.JoinHostPort(record.Target, "636"))
 	}
 
 	return result, nil
