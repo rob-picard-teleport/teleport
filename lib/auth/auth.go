@@ -3047,7 +3047,7 @@ func (a *Server) augmentUserCertificates(
 	}
 
 	// Issue audit event on success, same as [Server.generateCert].
-	a.emitCertCreateEvent(ctx, newIdentity, notAfter)
+	a.emitCertCreateEvent(ctx, tlsCA, newIdentity, notAfter)
 
 	return &proto.Certs{
 		SSH: newAuthorizedKey,
@@ -3446,6 +3446,7 @@ func generateCert(ctx context.Context, a *Server, req certRequest, caType types.
 	}
 
 	var signedTLSCert []byte
+	var tlsIssuer *tlsca.CertAuthority
 	if req.tlsPublicKey != nil {
 		tlsCryptoPubKey, err := keys.ParsePublicKey(req.tlsPublicKey)
 		if err != nil {
@@ -3473,9 +3474,10 @@ func generateCert(ctx context.Context, a *Server, req certRequest, caType types.
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
+		tlsIssuer = tlsCA
 	}
 
-	a.emitCertCreateEvent(ctx, &identity, notAfter)
+	a.emitCertCreateEvent(ctx, tlsIssuer, &identity, notAfter)
 
 	// create certs struct to return to user
 	certs := &proto.Certs{
@@ -3650,7 +3652,8 @@ func (a *Server) getSigningCAs(ctx context.Context, domainName string, caType ty
 	return tlsCA, sshSigner, ca, nil
 }
 
-func (a *Server) emitCertCreateEvent(ctx context.Context, identity *tlsca.Identity, notAfter time.Time) {
+func (a *Server) emitCertCreateEvent(ctx context.Context, issuer *tlsca.CertAuthority, identity *tlsca.Identity, notAfter time.Time) {
+	// TODO(zmb3): use issuer in audit event if not nil
 	eventIdentity := identity.GetEventIdentity()
 	eventIdentity.Expires = notAfter
 	if err := a.emitter.EmitAuditEvent(a.closeCtx, &apievents.CertificateCreate{
@@ -6501,18 +6504,23 @@ func (a *Server) GenerateCertAuthorityCRL(ctx context.Context, caType types.Cert
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	// Empty CRL valid for 1yr.
-	template := &x509.RevocationList{
-		Number:     big.NewInt(1),
-		ThisUpdate: time.Now().Add(-1 * time.Minute), // 1 min in the past to account for clock skew.
-		NextUpdate: time.Now().Add(365 * 24 * time.Hour),
-	}
-	crl, err := x509.CreateRevocationList(rand.Reader, template, tlsAuthority.Cert, tlsAuthority.Signer)
+
+	crl, err := x509.CreateRevocationList(rand.Reader, crlTemplate(), tlsAuthority.Cert, tlsAuthority.Signer)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
 	return crl, nil
+}
+
+func crlTemplate() *x509.RevocationList {
+	return &x509.RevocationList{
+		Number:     big.NewInt(1),
+		ThisUpdate: time.Now().Add(-1 * time.Minute), // 1 min in the past to account for clock skew.
+
+		// Note the 10 year expiration date. CRLs are always empty, so they don't need to change frequently.
+		NextUpdate: time.Now().Add(10 * 365 * 24 * time.Hour),
+	}
 }
 
 // ErrDone indicates that resource iteration is complete
@@ -7626,6 +7634,7 @@ func newKeySet(ctx context.Context, keyStore *keystore.Manager, caID types.CertA
 		if err != nil {
 			return keySet, trace.Wrap(err)
 		}
+
 		keySet.TLS = append(keySet.TLS, tlsKeyPair)
 	}
 

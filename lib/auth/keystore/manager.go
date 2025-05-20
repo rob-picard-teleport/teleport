@@ -25,6 +25,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -32,7 +33,9 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math/big"
 	"slices"
+	"time"
 
 	kms "cloud.google.com/go/kms/apiv1"
 	"github.com/gravitational/trace"
@@ -516,11 +519,35 @@ func (m *Manager) newTLSKeyPair(ctx context.Context, clusterName string, alg cry
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	// TODO: consider generating CRLs only for the CAs that require them
+	block, _ := pem.Decode(tlsCert)
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	crl, err := x509.CreateRevocationList(rand.Reader, crlTemplate(), caCert, signer)
+	if err != nil {
+		return nil, trace.Wrap(err, "generating CRL")
+	}
+
 	return &types.TLSKeyPair{
 		Cert:    tlsCert,
 		Key:     tlsKey,
 		KeyType: keyType(tlsKey),
+		CRL:     crl,
 	}, nil
+}
+
+// TODO: combine with the version in lib/auth?
+func crlTemplate() *x509.RevocationList {
+	return &x509.RevocationList{
+		Number:     big.NewInt(1),
+		ThisUpdate: time.Now().Add(-1 * time.Minute), // 1 min in the past to account for clock skew.
+
+		// Note the 10 year expiration date. CRLs are always empty, so they don't need to change frequently.
+		NextUpdate: time.Now().Add(10 * 365 * 24 * time.Hour),
+	}
 }
 
 // New JWTKeyPair create a new JWT keypair in the keystore backend and returns

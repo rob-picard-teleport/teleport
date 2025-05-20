@@ -401,6 +401,8 @@ func Init(ctx context.Context, cfg InitConfig, opts ...ServerOption) (*Server, e
 	return asrv, nil
 }
 
+// TODO: add a CRL to any authorities that don't already have them
+
 // initCluster configures the cluster based on the user provided configuration. This should
 // only be called when the init lock is held to prevent multiple instances of Auth from attempting
 // to bootstrap the cluster at the same time.
