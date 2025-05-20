@@ -32,6 +32,22 @@ import { AppSubKind, PermissionSet } from 'teleport/services/apps';
  */
 export type ResourceStatus = 'healthy' | 'unhealthy' | 'unknown' | '';
 
+const resourcesStatuses = new Set<ResourceHealthStatus>([
+  'healthy',
+  'unhealthy',
+  'unknown',
+  'mixed',
+]);
+
+export function isResourceStatus(
+  status: unknown
+): status is ResourceHealthStatus {
+  return (
+    typeof status === 'string' &&
+    resourcesStatuses.has(status as ResourceHealthStatus)
+  );
+}
+
 export type ResourceTargetHealth = {
   status: ResourceStatus;
   error?: string;
@@ -140,7 +156,7 @@ export type UnifiedResourcesQueryParams = {
     dir: 'ASC' | 'DESC';
   };
   pinnedOnly?: boolean;
-  statuses?: ResourceStatus[];
+  statuses?: ResourceHealthStatus[];
   // TODO(bl-nero): Remove this once filters are expressed as advanced search.
   kinds?: string[];
   includedResourceMode?: IncludedResourceMode;
