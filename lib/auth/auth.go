@@ -32,6 +32,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -69,6 +70,7 @@ import (
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	devicepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/devicetrust/v1"
 	headerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/header/v1"
+	integrationpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	mfav1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	notificationsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
 	workloadidentityv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/workloadidentity/v1"
@@ -3437,6 +3439,12 @@ func generateCert(ctx context.Context, a *Server, req certRequest, caType types.
 		return nil, trace.Wrap(err)
 	}
 
+	// Generate AWS credential process credentials if the user is trying to access an App with an AWS Roles Anywhere Integration.
+	awsCredentialProcessCredentials, err := generateAWSConfigCredentialProcessCredentials(ctx, a, req, notAfter)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
 	identity := tlsca.Identity{
 		Username:          req.user.GetName(),
 		Impersonator:      req.impersonator,
@@ -3449,15 +3457,16 @@ func generateCert(ctx context.Context, a *Server, req certRequest, caType types.
 		KubernetesGroups:  kubeGroups,
 		KubernetesUsers:   kubeUsers,
 		RouteToApp: tlsca.RouteToApp{
-			SessionID:         req.appSessionID,
-			URI:               req.appURI,
-			TargetPort:        req.appTargetPort,
-			PublicAddr:        req.appPublicAddr,
-			ClusterName:       req.appClusterName,
-			Name:              req.appName,
-			AWSRoleARN:        req.awsRoleARN,
-			AzureIdentity:     req.azureIdentity,
-			GCPServiceAccount: req.gcpServiceAccount,
+			SessionID:                       req.appSessionID,
+			URI:                             req.appURI,
+			TargetPort:                      req.appTargetPort,
+			PublicAddr:                      req.appPublicAddr,
+			ClusterName:                     req.appClusterName,
+			Name:                            req.appName,
+			AWSRoleARN:                      req.awsRoleARN,
+			AzureIdentity:                   req.azureIdentity,
+			GCPServiceAccount:               req.gcpServiceAccount,
+			AWSCredentialProcessCredentials: awsCredentialProcessCredentials,
 		},
 		TeleportCluster: clusterName,
 		RouteToDatabase: tlsca.RouteToDatabase{
@@ -3556,6 +3565,80 @@ func generateCert(ctx context.Context, a *Server, req certRequest, caType types.
 	userCertificatesGeneratedMetric.WithLabelValues(string(attestedKeyPolicy)).Inc()
 
 	return certs, nil
+}
+
+// integrationAndProfileARNsForApplication returns the AWS Roles Anywhere and Trust Anchor ARNs from an application.
+func integrationAndProfileARNsForApplication(ctx context.Context, a *Server, appName string) (string, string, bool, error) {
+	appServers, err := a.GetApplicationServers(ctx, "default")
+	if err != nil {
+		return "", "", false, trace.Wrap(err)
+	}
+	for _, appServer := range appServers {
+		if appServer.GetName() != appName {
+			continue
+		}
+
+		awsProfileARN := appServer.GetApp().GetAWSRolesAnywhereProfileARN()
+		if awsProfileARN == "" {
+			return "", "", false, nil
+		}
+		acceptRoleSessionName := appServer.GetApp().GetAWSRolesAnywhereAcceptRoleSessionName()
+
+		integrationName := appServer.GetApp().GetIntegration()
+		if integrationName == "" {
+			return "", "", false, trace.BadParameter("application %q has no associated integration", appName)
+		}
+
+		return integrationName, awsProfileARN, acceptRoleSessionName, nil
+	}
+
+	return "", "", false, trace.NotFound("application %q not found", appName)
+}
+
+func generateAWSConfigCredentialProcessCredentials(ctx context.Context,
+	a *Server,
+	req certRequest,
+	notAfter time.Time,
+) (string, error) {
+
+	appName := req.appName
+	userName := req.user.GetName()
+	awsRoleARN := req.awsRoleARN
+
+	if appName == "" || awsRoleARN == "" {
+		return "", nil
+	}
+
+	// Collect Trust Anchor ARN and Profile ARN
+	integrationName, awsProfileARN, acceptRoleSessionName, err := integrationAndProfileARNsForApplication(ctx, a, appName)
+	if err != nil {
+		if trace.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", trace.Wrap(err)
+	}
+	maxDuration := notAfter.Sub(a.clock.Now())
+
+	resp, err := a.GenerateAWSRACredentials(ctx, &integrationpb.GenerateAWSRACredentialsRequest{
+		Integration:                   integrationName,
+		ProfileArn:                    awsProfileARN,
+		ProfileAcceptsRoleSessionName: acceptRoleSessionName,
+		RoleArn:                       awsRoleARN,
+		SubjectName:                   userName,
+		SessionMaxDuration:            durationpb.New(maxDuration),
+	})
+	if err != nil {
+		return "", trace.Wrap(err)
+	}
+
+	var bs []byte
+	bs, err = json.Marshal(resp)
+	if err != nil {
+		return "", trace.Wrap(err)
+	}
+
+	return string(bs), nil
 }
 
 type attestHardwareKeyParams struct {

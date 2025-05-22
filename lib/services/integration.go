@@ -23,6 +23,7 @@ import (
 
 	"github.com/gravitational/trace"
 
+	integrationpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/utils"
 )
@@ -54,6 +55,8 @@ type IntegrationsTokenGenerator interface {
 	GenerateAWSOIDCToken(ctx context.Context, integration string) (string, error)
 	// GenerateAzureOIDCToken generates a token to be used to execute an Azure OIDC Integration action.
 	GenerateAzureOIDCToken(ctx context.Context, integration string) (string, error)
+	// GenerateAWSRACredentials generates a set of AWS Credentials using the AWS IAM Roles Anywhere Integration.
+	GenerateAWSRACredentials(ctx context.Context, req *integrationpb.GenerateAWSRACredentialsRequest) (*integrationpb.GenerateAWSRACredentialsResponse, error)
 }
 
 // MarshalIntegration marshals the Integration resource to JSON.

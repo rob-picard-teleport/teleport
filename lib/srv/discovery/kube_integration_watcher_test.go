@@ -530,6 +530,11 @@ func (m *mockIntegrationsTokenGenerator) GenerateAzureOIDCToken(ctx context.Cont
 	return uuid.NewString(), nil
 }
 
+// GenerateAWSRACredentials generates a set of AWS Credentials using the AWS IAM Roles Anywhere Integration.
+func (m *mockIntegrationsTokenGenerator) GenerateAWSRACredentials(ctx context.Context, req *integrationpb.GenerateAWSRACredentialsRequest) (*integrationpb.GenerateAWSRACredentialsResponse, error) {
+	return &integrationpb.GenerateAWSRACredentialsResponse{}, nil
+}
+
 type mockEnrollEKSClusterClient struct {
 	createAccessEntry           func(context.Context, *eks.CreateAccessEntryInput, ...func(*eks.Options)) (*eks.CreateAccessEntryOutput, error)
 	associateAccessPolicy       func(context.Context, *eks.AssociateAccessPolicyInput, ...func(*eks.Options)) (*eks.AssociateAccessPolicyOutput, error)
