@@ -21,6 +21,7 @@ package windows
 import (
 	"context"
 	"net"
+	"os"
 
 	"github.com/gravitational/trace"
 )
@@ -30,7 +31,30 @@ import (
 // process.
 //
 // See https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/dc-locator?tabs=dns-based-discovery
-func LocateLDAPServer(ctx context.Context, resolver *net.Resolver, domain string) ([]string, error) {
+func LocateLDAPServer(ctx context.Context, domain string) ([]string, error) {
+	var resolver *net.Resolver
+
+	resolverAddr := os.Getenv("TELEPORT_DESKTOP_ACCESS_RESOLVER_IP")
+	if resolverAddr != "" {
+		// Check if resolver address has a port
+		host, port, err := net.SplitHostPort(resolverAddr)
+		if err != nil {
+			host = resolverAddr
+			port = "53"
+		}
+		customResolverAddr := net.JoinHostPort(host, port)
+
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, network, customResolverAddr)
+			},
+		}
+	} else {
+		resolver = net.DefaultResolver
+	}
+
 	_, records, err := resolver.LookupSRV(ctx, "ldap", "tcp", domain)
 	if err != nil {
 		return nil, trace.Wrap(err, "looking up SRV records for %v", domain)

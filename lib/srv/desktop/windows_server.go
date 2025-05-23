@@ -48,6 +48,7 @@ import (
 	"github.com/gravitational/teleport/lib/defaults"
 	libevents "github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/events/recorder"
+	teleportldap "github.com/gravitational/teleport/lib/ldap"
 	"github.com/gravitational/teleport/lib/limiter"
 	"github.com/gravitational/teleport/lib/modules"
 	"github.com/gravitational/teleport/lib/reversetunnel"
@@ -125,10 +126,10 @@ type WindowsService struct {
 	ca *windows.CertificateStoreClient
 	lc *windows.LDAPClient
 
-	mu              sync.Mutex // mu protects the fields that follow
-	ldapConfigured  bool
-	ldapInitialized bool
-	ldapCertRenew   *time.Timer
+	mu                        sync.Mutex // mu protects the fields that follow
+	ldapConfigured            bool
+	ldapTlsConfig             *tls.Config
+	ldapTlsConfigExpiresAfter time.Time
 
 	// lastDisoveryResults stores the results of the most recent LDAP search
 	// when desktop discovery is enabled.
@@ -553,73 +554,34 @@ func (s *WindowsService) tlsConfigForLDAP() (*tls.Config, error) {
 // retried.
 //
 // This method is safe for concurrent calls.
-func (s *WindowsService) initializeLDAP() error {
-	tc, err := s.tlsConfigForLDAP()
-	if trace.IsAccessDenied(err) && modules.GetModules().BuildType() == modules.BuildEnterprise {
-		s.cfg.Logger.WarnContext(context.Background(),
-			"Could not generate certificate for LDAPS. Ensure that the auth server is licensed for desktop access.")
-	}
-	if err != nil {
-		s.mu.Lock()
-		s.ldapInitialized = false
-		// in the case where we're not licensed for desktop access, we retry less frequently,
-		// since this is likely not an intermittent error that will resolve itself quickly
-		s.scheduleNextLDAPCertRenewalLocked(windowsDesktopServiceCertRetryInterval * 3)
-		s.mu.Unlock()
-		return trace.Wrap(err)
-	}
+func (s *WindowsService) initializeLDAP() (*ldap.Conn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	conn, err := ldap.DialURL(
-		"ldaps://"+s.cfg.Addr,
-		ldap.DialWithDialer(&net.Dialer{Timeout: ldapDialTimeout}),
-		ldap.DialWithTLSConfig(tc),
-	)
-	if err != nil {
-		s.mu.Lock()
-		s.ldapInitialized = false
-
-		// failures due to timeouts might be transient, so retry more frequently
-		retryAfter := windowsDesktopServiceCertRetryInterval
-		if errors.Is(err, context.DeadlineExceeded) {
-			retryAfter = ldapTimeoutRetryInterval
+	if s.ldapTlsConfigExpiresAfter.After(s.cfg.Clock.Now()) {
+		tc, err := s.tlsConfigForLDAP()
+		if trace.IsAccessDenied(err) && modules.GetModules().BuildType() == modules.BuildEnterprise {
+			s.cfg.Logger.WarnContext(context.Background(),
+				"Could not generate certificate for LDAPS. Ensure that the auth server is licensed for desktop access.")
+		}
+		if err != nil {
+			return nil, trace.Wrap(err)
 		}
 
-		s.scheduleNextLDAPCertRenewalLocked(retryAfter)
-		s.mu.Unlock()
-		return trace.Wrap(err, "dial")
+		s.ldapTlsConfig = tc
+		s.ldapTlsConfigExpiresAfter = s.cfg.Clock.Now().Add(windowsDesktopServiceCertTTL / 3)
 	}
 
-	conn.SetTimeout(ldapRequestTimeout)
-	s.lc.SetClient(conn)
+	conn, err := teleportldap.CreateClient(context.Background(), s.cfg.Domain, s.ldapTlsConfig)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
 
 	if err := s.ca.Update(s.closeCtx); err != nil {
-		return trace.Wrap(err)
+		return nil, trace.Wrap(err)
 	}
 
-	s.mu.Lock()
-	s.ldapInitialized = true
-	s.scheduleNextLDAPCertRenewalLocked(windowsDesktopServiceCertTTL / 3)
-	s.mu.Unlock()
-
-	return nil
-}
-
-// scheduleNextLDAPCertRenewalLocked schedules a renewal of our LDAP credentials
-// after some amount of time has elapsed. If an existing renewal is already
-// scheduled, it is canceled and this new one takes its place.
-//
-// The lock on s.mu MUST be held.
-func (s *WindowsService) scheduleNextLDAPCertRenewalLocked(after time.Duration) {
-	s.cfg.Logger.InfoContext(context.Background(), "scheduled next LDAP cert renewal", "duration", after)
-	if s.ldapCertRenew != nil {
-		s.ldapCertRenew.Reset(after)
-	} else {
-		s.ldapCertRenew = time.AfterFunc(after, func() {
-			if err := s.initializeLDAP(); err != nil {
-				s.cfg.Logger.ErrorContext(context.Background(), "couldn't renew certificate for LDAP auth", "error", err)
-			}
-		})
-	}
+	return conn, nil
 }
 
 func (s *WindowsService) startServiceHeartbeat() error {
@@ -693,9 +655,6 @@ func (s *WindowsService) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.ldapCertRenew != nil {
-		s.ldapCertRenew.Stop()
-	}
 	s.close()
 	s.lc.Close()
 	return nil
