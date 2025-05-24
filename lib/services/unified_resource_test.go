@@ -732,8 +732,8 @@ func TestUnifiedResourceCacheIteration(t *testing.T) {
 							if r.GetName() != ids[count] {
 								t.Fatalf("expected resource named %s, got %s", ids[count], r.GetName())
 							}
-							if r, ok := r.(types.TargetHealthGetter); ok {
-								require.Equal(t, "mixed", r.GetTargetHealth().Status, "resource %v", r)
+							if r, ok := r.(types.TargetHealthStatusGetter); ok {
+								require.Equal(t, types.TargetHealthStatusMixed, r.GetTargetHealthStatus(), "resource %v", r)
 								require.IsTypef(t, &types.DatabaseServerV3{}, r, "resource %v", r)
 							}
 							count++
@@ -764,8 +764,8 @@ func TestUnifiedResourceCacheIteration(t *testing.T) {
 							if r.GetName() != ids[count] {
 								t.Fatalf("expected resource named %s, got %s", ids[count], r.GetName())
 							}
-							if r, ok := r.(types.TargetHealthGetter); ok {
-								require.Equal(t, "mixed", r.GetTargetHealth().Status, "resource %v", r)
+							if r, ok := r.(types.TargetHealthStatusGetter); ok {
+								require.Equal(t, types.TargetHealthStatusMixed, r.GetTargetHealthStatus(), "resource %v", r)
 								require.IsTypef(t, &types.DatabaseServerV3{}, r, "resource %v", r)
 							}
 							count--

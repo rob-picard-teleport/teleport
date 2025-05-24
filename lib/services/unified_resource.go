@@ -1026,17 +1026,15 @@ type aggregatedDatabase struct {
 	status types.TargetHealthStatus
 }
 
-func (d *aggregatedDatabase) GetTargetHealth() types.TargetHealth {
-	out := d.DatabaseServer.GetTargetHealth()
-	out.Status = string(d.status)
-	return out
+func (d *aggregatedDatabase) GetTargetHealthStatus() types.TargetHealthStatus {
+	return d.status
 }
 
 // Copy returns a copy of the underlying database server with aggregated health
 // status.
 func (d *aggregatedDatabase) Copy() types.DatabaseServer {
 	out := d.DatabaseServer.Copy()
-	out.SetTargetHealth(d.GetTargetHealth())
+	out.SetTargetHealthStatus(d.status)
 	return out
 }
 
@@ -1044,10 +1042,10 @@ func (d *aggregatedDatabase) CloneResource() types.ResourceWithLabels {
 	return d.Copy()
 }
 
-func aggregateHealthStatuses[T types.TargetHealthGetter](hgs map[string]T) types.TargetHealthStatus {
+func aggregateHealthStatuses[T types.TargetHealthStatusGetter](hgs map[string]T) types.TargetHealthStatus {
 	return types.AggregateHealthStatus(func(yield func(types.TargetHealthStatus) bool) {
 		for _, hg := range hgs {
-			if !yield(types.TargetHealthStatus(hg.GetTargetHealth().Status)) {
+			if !yield(hg.GetTargetHealthStatus()) {
 				return
 			}
 		}
