@@ -76,6 +76,8 @@ type Server interface {
 	// ProxiedService provides common methods for a proxied service.
 	ProxiedService
 
+	// Copy creates a clone of this server value
+	Copy() Server
 	// DeepCopy creates a clone of this server value
 	DeepCopy() Server
 
@@ -695,6 +697,11 @@ Outer:
 	}
 
 	return true
+}
+
+// Copy creates a clone of this server value
+func (s *ServerV2) Copy() Server {
+	return s.DeepCopy()
 }
 
 // DeepCopy creates a clone of this server value
