@@ -34,7 +34,7 @@ The module will initially allow the following features and functionality of Tele
 - Auditd logging
 - PAM support
 
-`teleport-updated` will be updated to allow users to update or install Teleport's SELinux module. A flag will be added to `teleport start` that will check that the Teleport SELinux module is installed and configured correctly, and exit with an error otherwise.
+`teleport-update` will be updated to allow users to update or install Teleport's SELinux module. A flag will be added to `teleport start` that will check that the Teleport SELinux module is installed and configured correctly, and exit with an error otherwise.
 
 ## Details
 
@@ -77,7 +77,7 @@ These include:
 - Enhanced session recording with BPF
    - The `teleport_ssh_service` domain will be allowed to create and manage BPF ring buffers, and load BPF programs
 - Creation of PAM contexts
-    - The `teleport_ssh_service_intermediary` domain will be allowed to `dlopen` the PAM module and call it's exported functions
+    - The `teleport_ssh_service_intermediary` domain will be allowed to `dlopen` the PAM module and call its exported functions
     - The location of the PAM module will be configurable
 - SFTP support
     - The `teleport_ssh_service_intermediary` domain will be allowed to re-execute itself with `sftp` as the first argument
@@ -97,6 +97,9 @@ new binaries being executed, or new Linux syscalls being called will require upd
 
 The module source will be embedded in future Teleport agent binaries. This will ensure that the module is always compatible with the installed version of Teleport.
 
+A shell script will be added that will allow users to install and update the SELinux module. It will extract the embedded module source from
+the installed version of Teleport and build and install the SELinux module. This script will be included in release tarballs, but not DEB or RPM packages.
+
 `teleport-update` will be modified to support managing SELinux modules for Teleport SSH. `teleport-update` will install the SELinux
 module if configured to, and will remove it if it was previously installed and the user specified that they don't want the module
 installed now. If SELinux is not present on the host, the `teleport-update` will tell the user this and exit. If SELinux is present but 
@@ -113,7 +116,9 @@ the Teleport SELinux module and may be modified.
 If the SSH service itself was allowed to manage its own SELinux module, an attacker that compromised the SSH service could modify the module to
 be more permissive, defeating the point of the module in the first place.
 
-Installation scripts will be updated to install and configure the SELinux module with the `teleport-update`.
+`teleport-update` is included in release tarballs and DEB/RPM packages, the new shell script will be included in
+release tarballs, and the installation script at https://goteleport.com/download ultimately downloads release
+tarballs or DEB/RPM packages so there should always be a way to install the SELinux module no matter how Teleport is installed.
 
 SELinux has 3 modes, disabled, permissive (module violations are only logged) and enforcing (attempts to violate the module are denied).
 The SELinux mode will not be modified by `teleport-update`, users will be responsible for enabling SELinux if they so choose.
@@ -128,8 +133,11 @@ The following RPM packages will be required to install the SELinux module:
 #### Examples
 
 ```
-# installing a module
+# installing a module with auto-updates enabled
 $ teleport-update enable --enable-selinux
+SELinux module installed successfully
+# installing a module manually (ex. self-hosted)
+$ ./install-selinux.sh
 SELinux module installed successfully
 # with --dry-run
 $ teleport-update enable --enable-selinux --dry-run
@@ -153,8 +161,9 @@ run `teleport-update` to update the SELinux module.
 
 ### UX
 
-A `--troubleshoot` flag will be added to the `teleport selinux` subcommand that will attempt to use the `audit2why` command
-to read and interpret Teleport SELinux module denies to aid in troubleshooting on client hosts.
+A `troubleshoot` subcommand will be added to the new `teleport selinux` subcommand that will attempt to use the `audit2why` command
+to read and interpret Teleport SELinux module denies to aid in troubleshooting on client hosts. It will print logged denials of the SELinux module
+and some information about why the actions were denied.
 
 ### Host support
 
