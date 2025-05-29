@@ -188,6 +188,10 @@ Specifically, the following SSH service features will be tested with the module 
 - X11 forwarding
 - SFTP support
 
+Infrastructure to support automated testing of Teleport SSH with the SELinux module installed on RHEL 8 and 9 will be added as well.
+The automated tests will give a clear indicator of when changes in Teleport require the SELinux module to be updated as well.
+The tests will be run on every commit pushed to the master and release branches that update Teleport.
+
 ### Future work
 
 The module could be updated to make permissions of optional SSH service features controlled by SELinux booleans to remove even more unneeded privileges.
