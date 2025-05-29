@@ -20,8 +20,8 @@ package windows
 
 import (
 	"context"
+	"log"
 	"net"
-	"os"
 
 	"github.com/gravitational/trace"
 )
@@ -31,40 +31,30 @@ import (
 // process.
 //
 // See https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/dc-locator?tabs=dns-based-discovery
-func LocateLDAPServer(ctx context.Context, domain string) ([]string, error) {
-	var resolver *net.Resolver
-
-	resolverAddr := os.Getenv("TELEPORT_DESKTOP_ACCESS_RESOLVER_IP")
-	if resolverAddr != "" {
-		// Check if resolver address has a port
-		host, port, err := net.SplitHostPort(resolverAddr)
-		if err != nil {
-			host = resolverAddr
-			port = "53"
-		}
-		customResolverAddr := net.JoinHostPort(host, port)
-
-		resolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{}
-				return d.DialContext(ctx, network, customResolverAddr)
-			},
-		}
-	} else {
-		resolver = net.DefaultResolver
-	}
-
+func LocateLDAPServer(ctx context.Context, domain string, resolver *net.Resolver) ([]string, error) {
+	log.Printf("DEBUG: Looking up SRV records for _ldap._tcp.%s", domain)
 	_, records, err := resolver.LookupSRV(ctx, "ldap", "tcp", domain)
 	if err != nil {
+		log.Printf("DEBUG: Error looking up SRV records for %v: %v", domain, err)
 		return nil, trace.Wrap(err, "looking up SRV records for %v", domain)
 	}
+	log.Printf("DEBUG: Found SRV records: %+v", records)
 
 	// note: LookupSRV already returns records sorted by priority and takes in to account weights
 	result := make([]string, 0, len(records))
 	for _, record := range records {
-		result = append(result, net.JoinHostPort(record.Target, "636"))
+		log.Printf("DEBUG: Looking up host for SRV record target: %s", record.Target)
+		addrs, err := resolver.LookupHost(ctx, record.Target)
+		if err != nil {
+			log.Printf("DEBUG: Error looking up host for %v: %v", record.Target, err)
+			continue
+		}
+		log.Printf("DEBUG: Found host addresses for %s: %v", record.Target, addrs)
+		if len(addrs) > 0 {
+			result = append(result, net.JoinHostPort(addrs[0], "636"))
+		}
 	}
 
+	log.Printf("DEBUG: Final LDAP server addresses: %v", result)
 	return result, nil
 }

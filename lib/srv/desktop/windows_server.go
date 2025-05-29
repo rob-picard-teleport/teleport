@@ -25,6 +25,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"os"
@@ -388,12 +389,6 @@ func NewWindowsService(cfg WindowsServiceConfig) (*WindowsService, error) {
 
 	if s.cfg.LDAPConfig.Addr != "" {
 		s.ldapConfigured = true
-		// initialize LDAP - if this fails it will automatically schedule a retry.
-		// we don't want to return an error in this case, because failure to start
-		// the service brings down the entire Teleport process
-		if err := s.initializeLDAP(); err != nil {
-			s.cfg.Logger.ErrorContext(ctx, "initializing LDAP client, will retry", "error", err)
-		}
 	}
 
 	ok := false
@@ -450,27 +445,19 @@ func (s *WindowsService) startLDAPConnectionCheck(ctx context.Context) {
 		for {
 			select {
 			case <-t.Chan():
-				// First check if we have successfully initialized the LDAP client.
-				// If not, then do that now and return.
-				// (This mimics the check that is performed when LDAP discovery is enabled.)
-				s.mu.Lock()
-				if !s.ldapInitialized {
-					s.cfg.Logger.DebugContext(context.Background(), "LDAP not ready, attempting to reconnect")
-					s.mu.Unlock()
-					s.initializeLDAP()
-					return
+				_, errLDAP := s.initializeLDAP()
+				if errLDAP != nil {
+					s.cfg.Logger.WarnContext(ctx, "failed to initialize LDAP connection", "error", errLDAP)
+					continue
 				}
-				s.mu.Unlock()
 
 				// If we have initialized the LDAP client, then try to use it to make sure we're still connected
 				// by attempting to read CAs in the NTAuth store (we know we have permissions to do so).
 				ntAuthDN := "CN=NTAuthCertificates,CN=Public Key Services,CN=Services,CN=Configuration," + windows.DomainDN(s.cfg.LDAPConfig.Domain)
 				_, err := s.lc.Read(ntAuthDN, "certificationAuthority", []string{"cACertificate"})
-				if trace.IsConnectionProblem(err) {
-					s.cfg.Logger.DebugContext(ctx, "detected broken LDAP connection, will reconnect")
-					if err := s.initializeLDAP(); err != nil {
-						s.cfg.Logger.WarnContext(ctx, "failed to reconnect to LDAP", "error", err)
-					}
+				if err != nil {
+					s.cfg.Logger.WarnContext(ctx, "failed to read NTAuth store", "error", err)
+					continue
 				}
 			case <-ctx.Done():
 				return
@@ -557,8 +544,10 @@ func (s *WindowsService) tlsConfigForLDAP() (*tls.Config, error) {
 func (s *WindowsService) initializeLDAP() (*ldap.Conn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cfg.Logger.WarnContext(s.closeCtx, "Generating new LDAP connection")
 
-	if s.ldapTlsConfigExpiresAfter.After(s.cfg.Clock.Now()) {
+	if !s.ldapTlsConfigExpiresAfter.After(s.cfg.Clock.Now()) {
+		log.Printf("Recreating existing LDAP connection")
 		tc, err := s.tlsConfigForLDAP()
 		if trace.IsAccessDenied(err) && modules.GetModules().BuildType() == modules.BuildEnterprise {
 			s.cfg.Logger.WarnContext(context.Background(),
@@ -567,7 +556,7 @@ func (s *WindowsService) initializeLDAP() (*ldap.Conn, error) {
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-
+		log.Printf("TLS config for LDAP connection: %v", tc.InsecureSkipVerify)
 		s.ldapTlsConfig = tc
 		s.ldapTlsConfigExpiresAfter = s.cfg.Clock.Now().Add(windowsDesktopServiceCertTTL / 3)
 	}
@@ -576,6 +565,7 @@ func (s *WindowsService) initializeLDAP() (*ldap.Conn, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+	s.lc.SetClient(conn)
 
 	if err := s.ca.Update(s.closeCtx); err != nil {
 		return nil, trace.Wrap(err)
@@ -687,20 +677,6 @@ func (s *WindowsService) Serve(plainLis net.Listener) error {
 	}
 }
 
-func (s *WindowsService) readyForConnections() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// If LDAP was not configured, we assume all hosts are non-AD
-	// and the server can accept connections right away.
-	if !s.ldapConfigured {
-		return true
-	}
-
-	// If LDAP was configured, then we need to wait for it to be initialized
-	// before accepting connections.
-	return s.ldapInitialized
-}
-
 // handleConnection handles TLS connections from a Teleport proxy.
 // It authenticates and authorizes the connection, and then begins
 // translating the TDP messages from the proxy into native RDP.
@@ -715,15 +691,6 @@ func (s *WindowsService) handleConnection(proxyConn *tls.Conn) {
 		if err := tdpConn.SendNotification(message, tdp.SeverityError); err != nil {
 			log.ErrorContext(context.Background(), "Failed to send TDP error message", "error", err)
 		}
-	}
-
-	// don't handle connections until the LDAP initialization retry loop has succeeded
-	// (it would fail anyway, but this presents a better error to the user)
-	if !s.readyForConnections() {
-		const msg = "This service cannot accept connections until LDAP initialization has completed."
-		log.ErrorContext(context.Background(), msg)
-		sendTDPError(msg)
-		return
 	}
 
 	// Check connection limits.
@@ -1244,6 +1211,10 @@ func (s *WindowsService) generateUserCert(ctx context.Context, username string, 
 		s.cfg.Logger.DebugContext(ctx, "querying LDAP for objectSid of Windows user", "username", username, "filter", filter)
 		domainDN := windows.DomainDN(s.cfg.LDAPConfig.Domain)
 
+		_, err := s.initializeLDAP()
+		if err != nil {
+			return nil, nil, trace.Wrap(err)
+		}
 		entries, err := s.lc.ReadWithFilter(domainDN, filter, []string{windows.AttrObjectSid})
 		// if LDAP-based desktop discovery is not enabled, there may not be enough
 		// traffic to keep the connection open. Attempt to open a new LDAP connection

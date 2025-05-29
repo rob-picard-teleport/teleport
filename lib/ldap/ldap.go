@@ -21,7 +21,9 @@ package ldap
 import (
 	"context"
 	"crypto/tls"
+	"log"
 	"net"
+	"os"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -43,7 +45,41 @@ const (
 // CreateClient creates a new LDAP client by going through addresses in priority
 // order retrieved from the user's domain.
 func CreateClient(ctx context.Context, domain string, ldapTlsConfig *tls.Config) (*ldap.Conn, error) {
-	servers, err := windows.LocateLDAPServer(ctx, domain)
+	var resolver *net.Resolver
+	dnsDialer := net.Dialer{
+		Timeout: ldapDialTimeout,
+	}
+
+	resolverAddr := os.Getenv("TELEPORT_DESKTOP_ACCESS_RESOLVER_IP")
+	log.Printf("DEBUG: TELEPORT_DESKTOP_ACCESS_RESOLVER_IP: %q", resolverAddr)
+	if resolverAddr != "" {
+		// Check if resolver address has a port
+		host, port, err := net.SplitHostPort(resolverAddr)
+		if err != nil {
+			host = resolverAddr
+			port = "53"
+		}
+		customResolverAddr := net.JoinHostPort(host, port)
+		log.Printf("DEBUG: Using custom resolver address: %s", customResolverAddr)
+
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return dnsDialer.DialContext(ctx, network, customResolverAddr)
+			},
+		}
+	} else {
+		log.Printf("DEBUG: Using net.DefaultResolver")
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
+				return dnsDialer.DialContext(dialCtx, network, address)
+			},
+		}
+	}
+	dnsDialer.Resolver = resolver
+
+	servers, err := windows.LocateLDAPServer(ctx, domain, resolver)
 	if err != nil {
 		return nil, trace.Wrap(err, "locating LDAP server")
 	}
@@ -55,12 +91,13 @@ func CreateClient(ctx context.Context, domain string, ldapTlsConfig *tls.Config)
 	for _, server := range servers {
 		conn, err := ldap.DialURL(
 			"ldaps://"+server,
-			ldap.DialWithDialer(&net.Dialer{Timeout: ldapDialTimeout}),
+			ldap.DialWithDialer(&dnsDialer),
 			ldap.DialWithTLSConfig(ldapTlsConfig),
 		)
 
 		if err != nil {
 			// If the connection fails, try the next server
+			log.Printf("DEBUG: Error connecting to LDAP server %q: %v", server, err)
 			continue
 		}
 

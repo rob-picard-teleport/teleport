@@ -185,6 +185,16 @@ func (c *LDAPClient) ReadWithFilter(dn string, filter string, attrs []string) ([
 
 	res, err := c.client.SearchWithPaging(req, searchPageSize)
 	if err != nil {
+		fmt.Printf("LDAP search raw error: %v (type: %T)\n", err, err)
+
+		var ldapErr *ldap.Error
+		if errors.As(err, &ldapErr) {
+			fmt.Printf("Detailed LDAP error: Code: %d (%s), MatchedDN: %q, Underlying lib err: %v\n",
+				ldapErr.ResultCode,
+				ldap.LDAPResultCodeMap[ldapErr.ResultCode],
+				ldapErr.MatchedDN,
+				ldapErr.Err)
+		}
 		return nil, trace.Wrap(convertLDAPError(err), "fetching LDAP object %q with filter %q", dn, filter)
 	}
 
