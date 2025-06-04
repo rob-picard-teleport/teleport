@@ -23,12 +23,14 @@ import (
 )
 
 type mcpCommands struct {
-	list *mcpListCommand
+	list    *mcpListCommand
+	connect *mcpConnectCommand
 }
 
 func newMCPCommands(app *kingpin.Application, cf *CLIConf) *mcpCommands {
 	mcp := app.Command("mcp", "View and control proxied MCP servers.")
 	return &mcpCommands{
-		list: newMCPListCommand(mcp, cf),
+		list:    newMCPListCommand(mcp, cf),
+		connect: newMCPConnectCommand(mcp, cf),
 	}
 }
