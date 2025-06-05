@@ -264,6 +264,8 @@ const cfg = {
     resetPasswordTokenPath: '/v1/webapi/users/password/token',
     webSessionPath: '/v1/webapi/sessions/web',
     userContextPath: '/v1/webapi/sites/:clusterId/context',
+    processHealthPath: '/v1/webapi/sites/:clusterId/processhealth',
+
     userStatusPath: '/v1/webapi/user/status',
     passwordTokenPath: '/v1/webapi/users/password/token/:tokenId?',
     changeUserPasswordPath: '/v1/webapi/users/password',
@@ -844,6 +846,11 @@ const cfg = {
   getUserContextUrl() {
     const clusterId = cfg.proxyCluster;
     return generatePath(cfg.api.userContextPath, { clusterId });
+  },
+
+  getProcessHealthUrl() {
+    const clusterId = cfg.proxyCluster;
+    return generatePath(cfg.api.processHealthPath, { clusterId });
   },
 
   getUserResetTokenRoute(tokenId = '', invite = true) {

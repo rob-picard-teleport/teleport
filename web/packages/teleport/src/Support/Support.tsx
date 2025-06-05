@@ -35,6 +35,11 @@ import { useNoMinWidth } from 'teleport/Main';
 import { CtaEvent } from 'teleport/services/userEvent';
 import useTeleport from 'teleport/useTeleport';
 
+import api from 'teleport/services/api/api';
+import Table, { Cell } from 'design/DataTable';
+
+
+
 export function SupportContainer({ children }: { children?: React.ReactNode }) {
   const ctx = useTeleport();
   const cluster = ctx.storeUser.state.cluster;
@@ -64,9 +69,451 @@ export const Support = ({
   isCloud,
   children,
   showPremiumSupportCTA,
+  serviceItems = [   
+
+     {
+        "Name": "ssh.node",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.web",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "fileuploadcompleter.service",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "common.upload.init",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "fileuploader.shutdown",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.tls",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "readyz.monitor",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "fileuploadcompleter.shutdown",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.db.postgres",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.reversetunnel.watcher",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.shutdown",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.shutdown",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.reversetunnel.web",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "register.proxy",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.expiry",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.reversetunnel.tls",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "register.node",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.broadcast",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "register.instance",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.reversetunnel.server",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.server.system-clock-monitor",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.tls.alpn.sni.proxy.reverseTunnel",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "fileuploader.service",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "debug.shutdown",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.tls.alpn.sni.proxy",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "closer",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.heartbeat",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.autoupdate_agent_rollout_controller",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "debug.service",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "ssh.node",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "common.rotate",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.heartbeat.broadcast",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-zxc",
+        "Hostname": "im-marcos-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.ssh",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "enterprise.auth.services.stop",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "instance.init",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.init",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "idp.saml",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.server_info",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.db.tls",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "auth.spiffe_federation_syncer",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "node",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "update.aws-oidc.deploy.service",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    },
+    {
+        "Name": "proxy.grpc.public",
+        "Status": "Running",
+        "HostID": "269d1652-8fdd-47ff-bf6d-09a3e1f51ba6",
+        "Hostname": "im-a-nodename",
+        "ProcessUptime": "1 hour ago",
+        "Version": "18.0.0-dev"
+    }
+  ],
 }: Props) => {
   useNoMinWidth();
   const docs = getDocUrls(authVersion, isEnterprise);
+
+
+// async function fetchProcessHealth() {
+//   const url = cfg.getProcessHealthUrl();
+//   try {
+//     const response = await fetch(url, {
+//       credentials: 'include', // include cookies if needed for auth
+//     });
+//     if (!response.ok) {
+//       throw new Error(`HTTP error! status: ${response.status}`);
+//     }
+//     const data = await response.json();
+//     console.log('Process Health:', data);
+//     return data;
+//   } catch (err) {
+//     console.error('Failed to fetch process health:', err);
+//     return null;
+//   }
+// }
+
+//  fetchProcessHealth();
+
+
+// ...existing code...
+
+// ** TODO (MP/mayurah) ** : Refactor this to use the api.get method for consistent headers and error handling
+
+async function fetchProcessHealth() {
+  const url = cfg.getProcessHealthUrl();
+  try {
+    // Use the api.get method for consistent headers and error handling
+    const data = await api.get(url);
+    // console.log('Process Health:', data);
+
+    // const serviceItems = [];
+
+    data.Items.forEach(item => {
+      const { HostID, Hostname, ProcessUptime, Version, Units } = item;
+      Units.forEach(unit => {
+        serviceItems.push({
+          ...unit,
+          HostID,
+          Hostname,
+          ProcessUptime,
+          Version,
+        });
+      });
+    });
+
+    console.log('Service Items:', serviceItems);
+
+    /**
+     * To trigger a re-render after updating serviceItems, you need to manage serviceItems as a state variable.
+     * Move serviceItems into a useState, and update it here.
+     * Example:
+     */
+
+    return data;
+  } catch (err) {
+    console.error('Failed to fetch process health:', err);
+    return null;
+  }
+}
+
+
+const processHealth = fetchProcessHealth().then(data => {
+  if (data) {
+    console.log('Process Health:', data);
+  }
+});
+
 
   return (
     <FeatureBox maxWidth="2000px">
@@ -79,7 +526,7 @@ export const Support = ({
             <IconBox>
               <Icons.Cluster />
             </IconBox>
-            <H2>Cluster Information</H2>
+            <H2>Cluster Information OG</H2>
           </Flex>
         </StyledRow>
         <StyledRow
@@ -99,6 +546,57 @@ export const Support = ({
         </StyledRow>
       </StyledMultiRowBox>
       <MobileSeparator />
+
+      <StyledMultiRowBox mb={3}>
+        <StyledRow>
+          <Flex alignItems="center" justifyContent="start">
+            <IconBox>
+              <Icons.Cluster />
+            </IconBox>
+            <H2>Services</H2>
+          </Flex>
+        </StyledRow>
+        
+        <StyledRow>
+            <Text typography="body2" mb={2}>
+            The following {serviceItems.length} services are running on {Array.from(new Set(serviceItems.map(item => item.Hostname))).length} unique hosts: 
+            </Text>
+        </StyledRow>
+        <StyledRow
+          css={`
+            padding-left: ${props => props.theme.space[6]}px;
+          `}
+        >
+          {/* To refresh the data after changes to serviceItems, manage serviceItems with useState and update it when data changes. */}
+
+
+          <StyledTable
+
+            columns={[
+              { key: 'Hostname', headerText: 'Hostname' },
+              { key: 'Name', headerText: 'Name' },
+              { key: 'ProcessUptime', headerText: 'Process Uptime' },
+              { key: 'Status', headerText: 'Status' },
+              { key: 'Version', headerText: 'Version' },
+            ]}
+            data={serviceItems}
+            rowKey="HostID-Name"
+            renderRow={row => (
+              <tr key={`${row.HostID}-${row.Name}`}>
+          <Cell>{row.Hostname}</Cell>
+          <Cell>{row.Name}</Cell>
+          <Cell>{row.ProcessUptime}</Cell>
+          <Cell>{row.Status}</Cell>
+          <Cell>{row.Version}</Cell>
+              </tr>
+            )}
+          />
+        </StyledRow>
+
+      </StyledMultiRowBox>
+      <MobileSeparator />
+
+
       <StyledMultiRowBox mb={3}>
         <StyledRow>
           <SupportContentFlex
@@ -185,6 +683,10 @@ export const Support = ({
       {children}
     </FeatureBox>
   );
+
+
+
+
 };
 
 export const StyledMultiRowBox = styled(MultiRowBox)`
@@ -350,6 +852,14 @@ const StyledSupportLink = styled.a.attrs({
   }
 `;
 
+
+export const StyledTable = styled(Table)`
+  td {
+    height: 22px;
+  }
+` as typeof Table;
+
+
 export const DataItem = ({ title = '', data = null }) => (
   <DataItemFlex>
     <Text typography="body2" bold style={{ width: '136px' }}>
@@ -369,4 +879,6 @@ export type Props = {
   tunnelPublicAddress?: string;
   children?: React.ReactNode;
   showPremiumSupportCTA: boolean;
+  serviceItems?: any[];
 };
+
