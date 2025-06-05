@@ -56,10 +56,11 @@ func (h *Handler) processHealthList(w http.ResponseWriter, r *http.Request, p ht
 		uptimeSince := time.Now().Add(-time.Second * time.Duration(uptime))
 
 		resp.Items = append(resp.Items, ProcessHealth{
-			HostID:  ph.Metadata.Name,
-			Uptime:  humanize.RelTime(uptimeSince, time.Now(), "ago", "from now"),
-			Version: ph.Version,
-			Units:   units,
+			HostID:        ph.Metadata.Name,
+			Hostname:      ph.Status.SystemInfo.Hostname,
+			ProcessUptime: humanize.RelTime(uptimeSince, time.Now(), "ago", "from now"),
+			Version:       ph.Status.SystemInfo.TeleportVersion,
+			Units:         units,
 		})
 	}
 
@@ -71,10 +72,11 @@ type ProcessHealthReponse struct {
 }
 
 type ProcessHealth struct {
-	HostID  string
-	Uptime  string
-	Version string
-	Units   []ProcessHealthUnit
+	HostID        string
+	Hostname      string
+	ProcessUptime string
+	Version       string
+	Units         []ProcessHealthUnit
 }
 
 type ProcessHealthUnit struct {
