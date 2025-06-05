@@ -54,6 +54,7 @@ import (
 	loginrulepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/loginrule/v1"
 	machineidv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
 	pluginsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/plugins/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
 	usertasksv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/usertasks/v1"
 	"github.com/gravitational/teleport/api/gen/proto/go/teleport/vnet/v1"
@@ -3233,6 +3234,31 @@ func (rc *ResourceCommand) getCollection(ctx context.Context, client *authclient
 			nextToken = token
 		}
 		return &userTaskCollection{items: tasks}, nil
+	case types.KindProcessHealth:
+		processHealthClient := client.ProcessHealthClient()
+		if rc.ref.Name != "" {
+			uit, err := processHealthClient.GetProcessHealth(ctx, rc.ref.Name)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			return &processHealthCollection{items: []*processhealthv1.ProcessHealth{uit}}, nil
+		}
+
+		var procs []*processhealthv1.ProcessHealth
+		nextToken := ""
+		for {
+			resp, token, err := processHealthClient.ListProcessHealths(ctx, 0 /* default size */, nextToken)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			procs = append(procs, resp...)
+
+			if token == "" {
+				break
+			}
+			nextToken = token
+		}
+		return &processHealthCollection{items: procs}, nil
 	case types.KindDiscoveryConfig:
 		remote := client.DiscoveryConfigClient()
 		if rc.ref.Name != "" {

@@ -28,6 +28,7 @@ import (
 	kubewaitingcontainerpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/kubewaitingcontainer/v1"
 	machineidv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
 	notificationsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	provisioningv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/provisioning/v1"
 	accessv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/scopes/access/v1"
 	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
@@ -365,6 +366,10 @@ func EventToGRPC(in types.Event) (*proto.Event, error) {
 		out.Resource = &proto.Event_PluginStaticCredentials{
 			PluginStaticCredentials: r,
 		}
+	case types.Resource153UnwrapperT[*processhealthv1.ProcessHealth]:
+		out.Resource = &proto.Event_ProcessHealth{
+			ProcessHealth: r.UnwrapT(),
+		}
 	default:
 		return nil, trace.BadParameter("resource type %T is not supported", in.Resource)
 	}
@@ -650,6 +655,9 @@ func EventFromGRPC(in *proto.Event) (*types.Event, error) {
 		out.Resource = types.Resource153ToLegacy(r)
 		return &out, nil
 	} else if r := in.GetHealthCheckConfig(); r != nil {
+		out.Resource = types.Resource153ToLegacy(r)
+		return &out, nil
+	} else if r := in.GetProcessHealth(); r != nil {
 		out.Resource = types.Resource153ToLegacy(r)
 		return &out, nil
 	} else {

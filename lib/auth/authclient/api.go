@@ -35,6 +35,7 @@ import (
 	integrationpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	kubewaitingcontainerpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/kubewaitingcontainer/v1"
 	machineidv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	provisioningv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/provisioning/v1"
 	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
 	userspb "github.com/gravitational/teleport/api/gen/proto/go/teleport/users/v1"
@@ -1159,6 +1160,11 @@ type Cache interface {
 	GetUserTask(ctx context.Context, name string) (*usertasksv1.UserTask, error)
 	// ListUserTasks returns the user tasks resources.
 	ListUserTasks(ctx context.Context, pageSize int64, nextToken string, filters *usertasksv1.ListUserTasksFilters) ([]*usertasksv1.UserTask, string, error)
+
+	// GetProcessHealth returns the user tasks resource by name.
+	GetProcessHealth(ctx context.Context, name string) (*processhealthv1.ProcessHealth, error)
+	// ListProcessHealth returns the user tasks resources.
+	ListProcessHealths(ctx context.Context, pageSize int64, nextToken string) ([]*processhealthv1.ProcessHealth, string, error)
 
 	// NotificationGetter defines list methods for notifications.
 	services.NotificationGetter

@@ -358,6 +358,12 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (*Server, error) {
 			return nil, trace.Wrap(err)
 		}
 	}
+	if cfg.ProcessHealth == nil {
+		cfg.ProcessHealth, err = local.NewProcessHealthService(cfg.Backend)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+	}
 	if cfg.DiscoveryConfigs == nil {
 		cfg.DiscoveryConfigs, err = local.NewDiscoveryConfigService(cfg.Backend)
 		if err != nil {
@@ -535,6 +541,7 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (*Server, error) {
 		ConnectionsDiagnostic:           cfg.ConnectionsDiagnostic,
 		Integrations:                    cfg.Integrations,
 		UserTasks:                       cfg.UserTasks,
+		ProcessHealth:                   cfg.ProcessHealth,
 		DiscoveryConfigs:                cfg.DiscoveryConfigs,
 		Okta:                            cfg.Okta,
 		AccessLists:                     cfg.AccessLists,
@@ -769,6 +776,7 @@ type Services struct {
 	services.Integrations
 	services.IntegrationsTokenGenerator
 	services.UserTasks
+	services.ProcessHealth
 	services.DiscoveryConfigs
 	services.Okta
 	services.AccessLists

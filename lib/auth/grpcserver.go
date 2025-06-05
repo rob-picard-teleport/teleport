@@ -67,6 +67,7 @@ import (
 	mfav1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	notificationsv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
 	presencev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/presence/v1"
+	processhealthv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	scopedaccessv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/scopes/access/v1"
 	scopedjoiningv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/scopes/joining/v1"
 	secreportsv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/secreports/v1"
@@ -105,6 +106,7 @@ import (
 	"github.com/gravitational/teleport/lib/auth/machineid/workloadidentityv1"
 	"github.com/gravitational/teleport/lib/auth/notifications/notificationsv1"
 	"github.com/gravitational/teleport/lib/auth/presence/presencev1"
+	"github.com/gravitational/teleport/lib/auth/processhealth/processhealthv1"
 	scopedaccess "github.com/gravitational/teleport/lib/auth/scopes/access"
 	scopedjoining "github.com/gravitational/teleport/lib/auth/scopes/joining"
 	"github.com/gravitational/teleport/lib/auth/secreports/secreportsv1"
@@ -5551,6 +5553,20 @@ func NewGRPCServer(cfg GRPCServerConfig) (*GRPCServer, error) {
 		return nil, trace.Wrap(err)
 	}
 	usertaskv1pb.RegisterUserTaskServiceServer(server, userTask)
+
+	processHealth, err := processhealthv1.NewService(processhealthv1.ServiceConfig{
+		Authorizer: cfg.Authorizer,
+		Backend:    cfg.AuthServer.Services,
+		Cache:      cfg.AuthServer.Cache,
+		// This must be a function because cfg.AuthServer.UsageReporter is changed after `NewGRPCServer` is called.
+		// It starts as a DiscardUsageReporter, but when running in Cloud, gets replaced by a real reporter.
+		UsageReporter: func() usagereporter.UsageReporter { return cfg.AuthServer.UsageReporter },
+		Emitter:       cfg.Emitter,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	processhealthv1pb.RegisterProcessHealthServiceServer(server, processHealth)
 
 	discoveryConfig, err := discoveryconfigv1.NewService(discoveryconfigv1.ServiceConfig{
 		Authorizer: cfg.Authorizer,

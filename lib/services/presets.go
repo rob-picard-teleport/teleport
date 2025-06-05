@@ -218,6 +218,7 @@ func NewPresetEditorRole() types.Role {
 					types.NewRule(types.KindSigstorePolicy, RW()),
 					types.NewRule(types.KindWorkloadIdentityX509IssuerOverride, RW()),
 					types.NewRule(types.KindWorkloadIdentityX509IssuerOverrideCSR, RW()),
+					types.NewRule(types.KindProcessHealth, RW()),
 				},
 			},
 		},

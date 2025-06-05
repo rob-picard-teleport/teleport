@@ -239,6 +239,8 @@ type InitConfig struct {
 
 	// UserTasks is a service that manages UserTasks.
 	UserTasks services.UserTasks
+	// ProcessHealth is a service that manages ProcessHealth.
+	ProcessHealth services.ProcessHealth
 
 	// DiscoveryConfigs is a service that manages DiscoveryConfigs.
 	DiscoveryConfigs services.DiscoveryConfigs

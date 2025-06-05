@@ -1093,6 +1093,8 @@ func (h *Handler) bindDefaultEndpoints() {
 	h.GET("/webapi/sites/:site/usertask/:name", h.WithClusterAuth(h.userTaskGet))
 	h.PUT("/webapi/sites/:site/usertask/:name/state", h.WithClusterAuth(h.userTaskStateUpdate))
 
+	h.GET("/webapi/sites/:site/processhealth", h.WithClusterAuth(h.processHealthList))
+
 	// Connection upgrades.
 	h.GET("/webapi/connectionupgrade", httplib.MakeHandler(h.connectionUpgrade))
 

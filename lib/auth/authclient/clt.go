@@ -624,6 +624,11 @@ func (c *Client) UserTasksClient() services.UserTasks {
 	return c.APIClient.UserTasksServiceClient()
 }
 
+// returns a client for managing User Task resources.
+func (c *Client) ProcessHealthClient() services.ProcessHealth {
+	return c.APIClient.ProcessHealthClient()
+}
+
 func (c *Client) NotificationServiceClient() notificationsv1.NotificationServiceClient {
 	return notificationsv1.NewNotificationServiceClient(c.APIClient.GetConnection())
 }
@@ -1488,6 +1493,8 @@ type ClientI interface {
 
 	// UserTasksServiceClient returns an User Task service client.
 	UserTasksServiceClient() *usertask.Client
+
+	ProcessHealthClient() services.ProcessHealth
 
 	// NewKeepAliver returns a new instance of keep aliver
 	NewKeepAliver(ctx context.Context) (types.KeepAliver, error)

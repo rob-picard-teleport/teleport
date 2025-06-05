@@ -53,6 +53,21 @@ const (
 	stateStarting = componentStateEnum(3)
 )
 
+func (s componentStateEnum) String() string {
+	switch s {
+	case stateOK:
+		return "ok"
+	case stateRecovering:
+		return "recovering"
+	case stateDegraded:
+		return "degraded"
+	case stateStarting:
+		return "starting"
+	default:
+		return fmt.Sprintf("unknown(%d)", s)
+	}
+}
+
 var stateGauge = prometheus.NewGauge(prometheus.GaugeOpts{
 	Name: teleport.MetricState,
 	Help: fmt.Sprintf("State of the teleport process: %d - ok, %d - recovering, %d - degraded, %d - starting", stateOK, stateRecovering, stateDegraded, stateStarting),

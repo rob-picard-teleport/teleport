@@ -42,6 +42,7 @@ import (
 	healthcheckconfigv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/healthcheckconfig/v1"
 	loginrulepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/loginrule/v1"
 	machineidv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
 	usertasksv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/usertasks/v1"
 	"github.com/gravitational/teleport/api/gen/proto/go/teleport/vnet/v1"
@@ -1971,6 +1972,34 @@ func (c *userTaskCollection) writeText(w io.Writer, verbose bool) error {
 		rows = append(rows, []string{item.Metadata.GetName(), labels, item.Spec.TaskType, item.Spec.IssueType, item.Spec.GetIntegration()})
 	}
 	headers := []string{"Name", "Labels", "TaskType", "IssueType", "Integration"}
+	t := asciitable.MakeTable(headers, rows...)
+
+	// stable sort by name.
+	t.SortRowsBy([]int{0}, true)
+	_, err := t.AsBuffer().WriteTo(w)
+	return trace.Wrap(err)
+}
+
+type processHealthCollection struct {
+	items []*processhealthv1.ProcessHealth
+}
+
+func (c *processHealthCollection) resources() []types.Resource {
+	r := make([]types.Resource, 0, len(c.items))
+	for _, resource := range c.items {
+		r = append(r, types.Resource153ToLegacy(resource))
+	}
+	return r
+}
+
+// writeText formats the user tasks into a table and writes them into w.
+// If verbose is disabled, labels column can be truncated to fit into the console.
+func (c *processHealthCollection) writeText(w io.Writer, verbose bool) error {
+	var rows [][]string
+	for _, item := range c.items {
+		rows = append(rows, []string{item.Metadata.Name, item.Status.SystemInfo.Hostname, item.Status.SystemInfo.Os, item.Status.SystemInfo.TeleportVersion})
+	}
+	headers := []string{"HostID", "Hostname", "OS", "TeleportVersion"}
 	t := asciitable.MakeTable(headers, rows...)
 
 	// stable sort by name.

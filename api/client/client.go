@@ -56,6 +56,7 @@ import (
 	gitserverclient "github.com/gravitational/teleport/api/client/gitserver"
 	kubewaitingcontainerclient "github.com/gravitational/teleport/api/client/kubewaitingcontainer"
 	"github.com/gravitational/teleport/api/client/okta"
+	processhealthapi "github.com/gravitational/teleport/api/client/processhealth"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/client/scim"
 	"github.com/gravitational/teleport/api/client/secreport"
@@ -88,6 +89,7 @@ import (
 	oktapb "github.com/gravitational/teleport/api/gen/proto/go/teleport/okta/v1"
 	pluginspb "github.com/gravitational/teleport/api/gen/proto/go/teleport/plugins/v1"
 	presencepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/presence/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	resourceusagepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/resourceusage/v1"
 	samlidppb "github.com/gravitational/teleport/api/gen/proto/go/teleport/samlidp/v1"
 	secreportsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/secreports/v1"
@@ -4834,6 +4836,14 @@ func (c *Client) UserLoginStateClient() *userloginstate.Client {
 // (as per the default gRPC behavior).
 func (c *Client) UserTasksServiceClient() *usertaskapi.Client {
 	return usertaskapi.NewClient(usertaskv1.NewUserTaskServiceClient(c.conn))
+}
+
+// ProcessHealthClient returns a UserTask client.
+// Clients connecting to older Teleport versions, still get a UserTask client
+// when calling this method, but all RPCs will return "not implemented" errors
+// (as per the default gRPC behavior).
+func (c *Client) ProcessHealthClient() *processhealthapi.Client {
+	return processhealthapi.NewClient(processhealthv1.NewProcessHealthServiceClient(c.conn))
 }
 
 // GitServerClient returns a client for managing Git servers

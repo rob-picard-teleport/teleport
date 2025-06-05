@@ -286,7 +286,10 @@ func ParseShortcut(in string) (string, error) {
 		return types.KindSigstorePolicy, nil
 	case types.KindHealthCheckConfig, types.KindHealthCheckConfig + "s", "hcc":
 		return types.KindHealthCheckConfig, nil
+	case types.KindProcessHealth, types.KindProcessHealth + "s", "ph":
+		return types.KindProcessHealth, nil
 	}
+	fmt.Println("HEY THERE")
 	return "", trace.BadParameter("unsupported resource: %q - resources should be expressed as 'type/name', for example 'connector/github'", in)
 }
 

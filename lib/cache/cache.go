@@ -208,6 +208,7 @@ func ForAuth(cfg Config) Config {
 		{Kind: types.KindGitServer},
 		{Kind: types.KindWorkloadIdentity},
 		{Kind: types.KindHealthCheckConfig},
+		{Kind: types.KindProcessHealth},
 	}
 	cfg.QueueSize = defaults.AuthQueueSize
 	// We don't want to enable partial health for auth cache because auth uses an event stream
@@ -264,6 +265,7 @@ func ForProxy(cfg Config) Config {
 		{Kind: types.KindAutoUpdateAgentRollout},
 		{Kind: types.KindUserTask},
 		{Kind: types.KindGitServer},
+		{Kind: types.KindProcessHealth},
 	}
 	cfg.QueueSize = defaults.ProxyQueueSize
 	return cfg
@@ -664,6 +666,8 @@ type Config struct {
 	UserLoginStates services.UserLoginStates
 	// UserTasks is the user tasks service.
 	UserTasks services.UserTasks
+	// UserTasks is the user tasks service.
+	ProcessHealth services.ProcessHealth
 	// SecEvents is the security report service.
 	SecReports services.SecReports
 	// AccessLists is the access lists service.

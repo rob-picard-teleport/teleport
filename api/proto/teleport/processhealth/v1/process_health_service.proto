@@ -1,0 +1,58 @@
+// Copyright 2025 Gravitational, Inc
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package teleport.processhealth.v1;
+
+import "teleport/processhealth/v1/process_health.proto";
+
+option go_package = "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1;processhealthv1";
+
+// ProcessHealthService is the service for managing ProcessHealth resources.
+service ProcessHealthService {
+  // CreateProcessHealth creates a new ProcessHealth resource.
+  rpc GetProcessHealth(GetProcessHealthRequest) returns (ProcessHealth);
+  // ListProcessHealths lists all ProcessHealth resources.
+  rpc ListProcessHealths(ListProcessHealthsRequest) returns (ListProcessHealthsResponse);
+  // UpsertProcessHealth creates or updates a ProcessHealth resource.
+  rpc UpsertProcessHealth(UpsertProcessHealthRequest) returns (ProcessHealth);
+}
+
+// CreateProcessHealth creates a new ProcessHealth resource.
+message CreateProcessHealthRequest {
+  ProcessHealth process_health = 1;
+}
+
+// GetProcessHealth retrieves a ProcessHealth resource by name.
+message GetProcessHealthRequest {
+  string name = 1;
+}
+
+// ListProcessHealths lists all ProcessHealth resources.
+message ListProcessHealthsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+// ListProcessHealthsResponse contains a list of ProcessHealth resources.
+message ListProcessHealthsResponse {
+  repeated ProcessHealth process_healths = 1;
+  string next_page_token = 2;
+}
+
+// UpsertProcessHealth creates or updates a ProcessHealth resource.
+message UpsertProcessHealthRequest {
+  ProcessHealth process_health = 1;
+}

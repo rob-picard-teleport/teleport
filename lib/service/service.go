@@ -66,14 +66,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/gravitational/teleport"
+	"github.com/gravitational/teleport/api"
 	"github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/client/webclient"
 	"github.com/gravitational/teleport/api/constants"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	accessgraphsecretsv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/accessgraph/v1"
+	headerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/header/v1"
 	integrationpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	kubeproto "github.com/gravitational/teleport/api/gen/proto/go/teleport/kube/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	transportpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/transport/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
@@ -561,6 +564,8 @@ type TeleportProcess struct {
 	Supervisor
 	Config *servicecfg.Config
 
+	startTime time.Time
+
 	// PluginsRegistry handles plugin registrations with Teleport services
 	PluginRegistry plugin.Registry
 
@@ -668,6 +673,26 @@ type TeleportProcess struct {
 
 	// state is the process state machine tracking if the process is healthy or not.
 	state *processState
+}
+
+func (process *TeleportProcess) RegisterFunc(name string, fn Func) {
+	if process.state != nil {
+		process.state.update(Event{
+			Name:    TeleportOKEvent,
+			Payload: name,
+		})
+	}
+	process.Supervisor.RegisterFunc(name, fn)
+}
+
+func (process *TeleportProcess) RegisterCriticalFunc(name string, fn Func) {
+	if process.state != nil {
+		process.state.update(Event{
+			Name:    TeleportOKEvent,
+			Payload: name,
+		})
+	}
+	process.Supervisor.RegisterCriticalFunc(name, fn)
 }
 
 // processIndex is an internal process index
@@ -993,6 +1018,8 @@ func RunWithSignalChannel(ctx context.Context, cfg servicecfg.Config, newTelepor
 func NewTeleport(cfg *servicecfg.Config) (*TeleportProcess, error) {
 	var err error
 
+	processStartTime := time.Now()
+
 	// Before we do anything reset the SIGINT handler back to the default.
 	system.ResetInterruptSignalHandler()
 
@@ -1220,6 +1247,7 @@ func NewTeleport(cfg *servicecfg.Config) (*TeleportProcess, error) {
 		cloudLabels:            cloudLabels,
 		TracingProvider:        tracing.NoopProvider(),
 		metricsRegistry:        metricsRegistry,
+		startTime:              processStartTime,
 	}
 
 	process.registerExpectedServices(cfg)
@@ -1366,11 +1394,21 @@ func NewTeleport(cfg *servicecfg.Config) (*TeleportProcess, error) {
 
 	serviceStarted := false
 
-	ps, err := process.newProcessStateMachine()
+	_, err = process.newProcessStateMachine()
 	if err != nil {
 		return nil, trace.Wrap(err, "failed to initialize process state machine")
 	}
-	process.state = ps
+
+	go func() {
+		for {
+			select {
+			case <-time.After(5 * time.Second):
+			case <-process.GracefulExitContext().Done():
+				return
+			}
+			process.refreshProcessHealth()
+		}
+	}()
 
 	if !cfg.DiagnosticAddr.IsEmpty() {
 		if err := process.initDiagnosticService(); err != nil {
@@ -2636,6 +2674,67 @@ func (process *TeleportProcess) initAuthService() error {
 	return nil
 }
 
+func (process *TeleportProcess) refreshProcessHealth() {
+	ctx := process.GracefulExitContext()
+
+	hostID := process.Config.HostUUID
+
+	var processHealthClient services.ProcessHealth
+	if process.localAuth != nil {
+		processHealthClient = process.localAuth.ProcessHealth
+	}
+	if process.localAuth == nil {
+		processHealthClient = process.instanceConnector.Client.ProcessHealthClient()
+	}
+
+	existingProcessHealth, err := processHealthClient.GetProcessHealth(ctx, hostID)
+	if err != nil && !trace.IsNotFound(err) {
+		process.logger.ErrorContext(ctx, "Failed to get existing process health", "error", err)
+		return
+	}
+
+	processUptimeSeconds := int64(process.Clock.Now().Sub(process.startTime).Seconds())
+
+	if existingProcessHealth == nil {
+		existingProcessHealth = &processhealthv1.ProcessHealth{
+			Kind:    types.KindProcessHealth,
+			Version: types.V1,
+			Metadata: &headerv1.Metadata{
+				Name: hostID,
+			},
+			Status: &processhealthv1.ProcessHealthStatus{
+				SystemInfo: &processhealthv1.ProcessSystemInfo{
+					Hostname:        process.Config.Hostname,
+					Os:              runtime.GOOS,
+					TeleportVersion: api.Version,
+					TeleportPid:     int64(os.Getpid()),
+				},
+			},
+		}
+	}
+	existingProcessHealth.Metadata.Expires = timestamppb.New(process.Clock.Now().Add(time.Minute * 6))
+	existingProcessHealth.Status.UnitsByName = make(map[string]*processhealthv1.Unit, len(process.state.states))
+	existingProcessHealth.Status.SystemInfo.ProcessUptime = processUptimeSeconds
+
+	// iterate over existing state and set the unit state
+	process.state.mu.Lock()
+	for stateName, state := range process.state.states {
+		stateUptime := process.Clock.Since(state.recoveryTime)
+		state := state.state
+		existingProcessHealth.Status.UnitsByName[stateName] = &processhealthv1.Unit{
+			Uptime:    int64(stateUptime.Seconds()),
+			State:     state.String(),
+			LastCheck: timestamppb.Now(),
+		}
+	}
+	process.state.mu.Unlock()
+
+	process.logger.DebugContext(ctx, "Updating process health unit state.")
+	if _, err = processHealthClient.UpsertProcessHealth(ctx, existingProcessHealth); err != nil {
+		process.logger.ErrorContext(ctx, "failed to upsert process health", "error", err)
+	}
+}
+
 func payloadContext(payload any) context.Context {
 	if ctx, ok := payload.(context.Context); ok {
 		return ctx
@@ -2691,6 +2790,7 @@ func (process *TeleportProcess) newAccessCacheForServices(cfg accesspoint.Config
 	cfg.Trust = services.TrustInternal
 	cfg.UserGroups = services.UserGroups
 	cfg.UserTasks = services.UserTasks
+	cfg.ProcessHealth = services.ProcessHealth
 	cfg.UserLoginStates = services.UserLoginStates
 	cfg.Users = services.Identity
 	cfg.WebSession = services.Identity.WebSessions()
@@ -2729,6 +2829,7 @@ func (process *TeleportProcess) newAccessCacheForClient(cfg accesspoint.Config, 
 	cfg.Events = client
 	cfg.Integrations = client
 	cfg.UserTasks = client.UserTasksServiceClient()
+	cfg.ProcessHealth = client.ProcessHealthClient()
 	cfg.KubeWaitingContainers = client
 	cfg.Kubernetes = client
 	cfg.Notifications = client
@@ -3636,6 +3737,8 @@ func (process *TeleportProcess) newProcessStateMachine() (*processState, error) 
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	process.state = ps
 
 	process.RegisterFunc("readyz.monitor", func() error {
 		// Start loop to monitor for events that are used to update Teleport state.

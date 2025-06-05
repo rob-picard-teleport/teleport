@@ -521,6 +521,9 @@ const (
 	// KindUserTask is a task representing an issue with some other resource.
 	KindUserTask = "user_task"
 
+	// KindProcessHealth is a task representing an issue with some other resource.
+	KindProcessHealth = "process_health"
+
 	// KindClusterMaintenanceConfig determines maintenance times for the cluster.
 	KindClusterMaintenanceConfig = "cluster_maintenance_config"
 

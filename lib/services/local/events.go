@@ -265,6 +265,8 @@ func (e *EventsService) NewWatcher(ctx context.Context, watch types.Watch) (type
 			parser = newHealthCheckConfigParser()
 		case types.KindRecordingEncryption:
 			parser = newRecordingEncryptionParser()
+		case types.KindProcessHealth:
+			parser = newProcessHealthParser()
 		default:
 			if watch.AllowPartialSuccess {
 				continue
@@ -2369,6 +2371,46 @@ func (p *userTaskParser) parse(event backend.Event) (types.Resource, error) {
 		}, nil
 	case types.OpPut:
 		r, err := services.UnmarshalUserTask(event.Item.Value,
+			services.WithExpires(event.Item.Expires),
+			services.WithRevision(event.Item.Revision),
+		)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		return types.Resource153ToLegacy(r), nil
+	default:
+		return nil, trace.BadParameter("event %v is not supported", event.Type)
+	}
+}
+
+func newProcessHealthParser() *processHealthParser {
+	return &processHealthParser{
+		baseParser: newBaseParser(backend.NewKey(processHealthKey)),
+	}
+}
+
+type processHealthParser struct {
+	baseParser
+}
+
+func (p *processHealthParser) parse(event backend.Event) (types.Resource, error) {
+	switch event.Type {
+	case types.OpDelete:
+		name := event.Item.Key.TrimPrefix(backend.NewKey(processHealthKey)).String()
+		if name == "" {
+			return nil, trace.NotFound("failed parsing %v", event.Item.Key.String())
+		}
+
+		return &types.ResourceHeader{
+			Kind:    types.KindProcessHealth,
+			Version: types.V1,
+			Metadata: types.Metadata{
+				Name:      strings.TrimPrefix(name, backend.SeparatorString),
+				Namespace: apidefaults.Namespace,
+			},
+		}, nil
+	case types.OpPut:
+		r, err := services.UnmarshalProcessHealth(event.Item.Value,
 			services.WithExpires(event.Item.Expires),
 			services.WithRevision(event.Item.Revision),
 		)

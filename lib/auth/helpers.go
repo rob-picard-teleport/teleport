@@ -539,6 +539,7 @@ func InitTestAuthCache(p TestAuthCacheParams) error {
 		Trust:                   p.AuthServer.Services.TrustInternal,
 		UserGroups:              p.AuthServer.Services.UserGroups,
 		UserTasks:               p.AuthServer.Services.UserTasks,
+		ProcessHealth:           p.AuthServer.Services.ProcessHealth,
 		UserLoginStates:         p.AuthServer.Services.UserLoginStates,
 		Users:                   p.AuthServer.Services.Identity,
 		WebSession:              p.AuthServer.Services.Identity.WebSessions(),

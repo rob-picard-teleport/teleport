@@ -32,6 +32,7 @@ import (
 	kubewaitingcontainerv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/kubewaitingcontainer/v1"
 	machineidv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/machineid/v1"
 	notificationsv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
+	processhealthv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/processhealth/v1"
 	provisioningv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/provisioning/v1"
 	userprovisioningv2 "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v2"
 	usertasksv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/usertasks/v1"
@@ -126,6 +127,7 @@ type collections struct {
 	tunnelConnections                  *collection[types.TunnelConnection, tunnelConnectionIndex]
 	remoteClusters                     *collection[types.RemoteCluster, remoteClusterIndex]
 	userTasks                          *collection[*usertasksv1.UserTask, userTaskIndex]
+	processHealth                      *collection[*processhealthv1.ProcessHealth, processHealthIndex]
 	userLoginStates                    *collection[*userloginstate.UserLoginState, userLoginStateIndex]
 	gitServers                         *collection[types.Server, gitServerIndex]
 	databaseObjects                    *collection[*dbobjectv1.DatabaseObject, databaseObjectIndex]
@@ -641,6 +643,14 @@ func setupCollections(c Config) (*collections, error) {
 
 			out.userTasks = collect
 			out.byKind[resourceKind] = out.userTasks
+		case types.KindProcessHealth:
+			collect, err := newProcessHealthCollection(c.ProcessHealth, watch)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+
+			out.processHealth = collect
+			out.byKind[resourceKind] = out.processHealth
 		case types.KindUserLoginState:
 			collect, err := newUserLoginStateCollection(c.UserLoginStates, watch)
 			if err != nil {
