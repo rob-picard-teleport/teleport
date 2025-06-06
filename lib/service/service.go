@@ -31,6 +31,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	mrand "math/rand"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -3739,6 +3740,25 @@ func (process *TeleportProcess) newProcessStateMachine() (*processState, error) 
 	}
 
 	process.state = ps
+
+	flipperFunc := "flipper.func"
+	process.RegisterFunc(flipperFunc, func() error {
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+			case <-process.GracefulExitContext().Done():
+				return nil
+			}
+
+			var err error
+			if mrand.Intn(5) < 1 {
+				slog.WarnContext(process.ExitContext(), "flipper warning")
+				err = trace.BadParameter("flipper error")
+			}
+
+			process.OnHeartbeat(flipperFunc)(err)
+		}
+	})
 
 	process.RegisterFunc("readyz.monitor", func() error {
 		// Start loop to monitor for events that are used to update Teleport state.

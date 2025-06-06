@@ -31,14 +31,12 @@ import (
 	"github.com/gravitational/trace"
 )
 
-var baseStyle = lipgloss.NewStyle().
-	BorderStyle(lipgloss.NormalBorder()).
-	BorderForeground(lipgloss.Color("240"))
-
 type model struct {
-	table     table.Model
-	tableType string
-	clt       services.ProcessHealth
+	ctx            context.Context
+	table          table.Model
+	tableType      string
+	clt            services.ProcessHealth
+	selectedHostID string
 }
 
 func initHostsTable(ctx context.Context, clt services.ProcessHealth) (tea.Model, error) {
@@ -48,121 +46,20 @@ func initHostsTable(ctx context.Context, clt services.ProcessHealth) (tea.Model,
 	}
 
 	columns := []table.Column{
-		{Title: "HostID", Width: 10},
-		{Title: "Hostname", Width: 20},
+		{Title: "HostID", Width: 12},
+		{Title: "Hostname", Width: 35},
 		{Title: "Version", Width: 10},
 		{Title: "Uptime", Width: 15},
-		{Title: "Units (ok/total)", Width: 15},
+		{Title: "Services (ok/total)", Width: 20},
+		{Title: "_", Width: 2},
 	}
 
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(20),
-	)
-
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(false)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
-		Bold(false)
-	t.SetStyles(s)
-
 	return model{
-		table:     t,
+		ctx:       ctx,
+		table:     tableWithColumnsRows(columns, rows),
 		clt:       clt,
 		tableType: "hosts",
 	}, nil
-}
-
-func initUnitsTable(ctx context.Context, clt services.ProcessHealth, hostID string) (tea.Model, error) {
-	rows, err := fetchUnits(ctx, clt, hostID)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	columns := []table.Column{
-		{Title: "Unit", Width: 30},
-		{Title: "State", Width: 5},
-	}
-
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(20),
-	)
-
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(false)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
-		Bold(false)
-	t.SetStyles(s)
-
-	return model{
-		table:     t,
-		tableType: "units",
-		clt:       clt,
-	}, nil
-}
-
-func (m model) Init() tea.Cmd { return nil }
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
-			if m.table.Focused() {
-				m.table.Blur()
-			} else {
-				m.table.Focus()
-			}
-		case "q", "ctrl+c":
-			return m, tea.Quit
-
-		case "right":
-			if m.tableType == "units" {
-				return m, nil // No action if not in units view
-			}
-
-			newM, err := initUnitsTable(context.TODO(), m.clt, m.table.SelectedRow()[0])
-			if err != nil {
-				return m, tea.Quit
-			}
-
-			return newM, nil
-		case "left":
-			if m.tableType == "hosts" {
-				return m, nil // No action if not in units view
-			}
-			newM, err := initHostsTable(context.TODO(), m.clt)
-			if err != nil {
-				return m, tea.Quit
-			}
-
-			return newM, nil
-		}
-	}
-	m.table, cmd = m.table.Update(msg)
-	return m, cmd
-}
-
-func (m model) View() string {
-	return baseStyle.Render(m.table.View()) + "\n"
 }
 
 func fetchHosts(ctx context.Context, clt services.ProcessHealth) ([]table.Row, error) {
@@ -184,15 +81,46 @@ func fetchHosts(ctx context.Context, clt services.ProcessHealth) ([]table.Row, e
 			}
 		}
 
+		globalStatus := "✅"
+		if totalUnits != okUnits {
+			globalStatus = "⚠️"
+		}
+
 		hosts = append(hosts, table.Row{
 			ph.Metadata.Name,
 			ph.Status.SystemInfo.Hostname,
 			ph.Status.SystemInfo.TeleportVersion,
 			humanize.RelTime(uptimeSince, time.Now(), "ago", "from now"),
 			fmt.Sprintf("%d/%d", okUnits, totalUnits),
+			globalStatus,
 		})
 	}
+
+	sort.Slice(hosts, func(i, j int) bool {
+		return hosts[i][1] < hosts[j][1] // Sort by hostname
+	})
+
 	return hosts, nil
+}
+
+func initUnitsTable(ctx context.Context, clt services.ProcessHealth, hostID string) (tea.Model, error) {
+	rows, err := fetchUnits(ctx, clt, hostID)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	columns := []table.Column{
+		{Title: "Unit", Width: 30},
+		{Title: "State", Width: 5},
+	}
+
+	return model{
+		ctx:            ctx,
+		table:          tableWithColumnsRows(columns, rows),
+		tableType:      "units",
+		selectedHostID: hostID,
+		clt:            clt,
+	}, nil
 }
 
 func fetchUnits(ctx context.Context, clt services.ProcessHealth, hostID string) ([]table.Row, error) {
@@ -220,4 +148,93 @@ func fetchUnits(ctx context.Context, clt services.ProcessHealth, hostID string) 
 	})
 
 	return rows, nil
+}
+
+func tableWithColumnsRows(columns []table.Column, rows []table.Row) table.Model {
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(false)
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithFocused(true),
+		table.WithHeight(20),
+	)
+
+	t.SetStyles(s)
+
+	return t
+}
+
+func (m model) Init() tea.Cmd { return nil }
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			if m.table.Focused() {
+				m.table.Blur()
+			} else {
+				m.table.Focus()
+			}
+		case "q", "ctrl+c":
+			return m, tea.Quit
+
+		case "r":
+			if m.tableType == "units" {
+				newM, err := initUnitsTable(m.ctx, m.clt, m.selectedHostID)
+				if err != nil {
+					return m, tea.Quit
+				}
+				return newM, nil
+			}
+
+			newM, err := initHostsTable(m.ctx, m.clt)
+			if err != nil {
+				return m, tea.Quit
+			}
+
+			return newM, nil
+
+		case "right":
+			if m.tableType == "units" {
+				return m, nil // No action if not in units view
+			}
+
+			newM, err := initUnitsTable(m.ctx, m.clt, m.table.SelectedRow()[0])
+			if err != nil {
+				return m, tea.Quit
+			}
+
+			return newM, nil
+		case "left":
+			if m.tableType == "hosts" {
+				return m, nil // No action if not in units view
+			}
+			newM, err := initHostsTable(m.ctx, m.clt)
+			if err != nil {
+				return m, tea.Quit
+			}
+
+			return newM, nil
+		}
+	}
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+func (m model) View() string {
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).Render(m.table.View()) + "\n"
 }

@@ -59,6 +59,9 @@ func (c *Command) TryRun(ctx context.Context, cmd string, clientFunc commonclien
 		return false, trace.Wrap(err)
 	}
 
-	_, err = tea.NewProgram(m).Run()
+	_, err = tea.NewProgram(
+		m,
+		tea.WithContext(ctx),
+	).Run()
 	return true, trace.Wrap(err)
 }
