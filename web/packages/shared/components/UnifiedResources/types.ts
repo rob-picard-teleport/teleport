@@ -32,19 +32,19 @@ import { AppSubKind, PermissionSet } from 'teleport/services/apps';
  */
 export type ResourceStatus = 'healthy' | 'unhealthy' | 'unknown' | '';
 
-const resourcesStatuses = new Set<ResourceHealthStatus>([
+const resourceHealthStatuses = new Set<ResourceHealthStatus>([
   'healthy',
   'unhealthy',
   'unknown',
   'mixed',
 ]);
 
-export function isResourceStatus(
+export function isResourceHealthStatus(
   status: unknown
 ): status is ResourceHealthStatus {
   return (
     typeof status === 'string' &&
-    resourcesStatuses.has(status as ResourceHealthStatus)
+    resourceHealthStatuses.has(status as ResourceHealthStatus)
   );
 }
 
