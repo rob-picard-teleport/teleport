@@ -81,10 +81,13 @@ func (w *StdioMessageWriter) WriteMessage(_ context.Context, resp mcp.JSONRPCMes
 
 // HandleParseErrorFunc handles parse errors.
 type HandleParseErrorFunc func(context.Context, *mcp.JSONRPCError) error
+type HandleRequestFunc func(context.Context, *JSONRPCRequest) error
+type HandleResponseFunc func(context.Context, *JSONRPCResponse) error
+type HandleNotificationFunc func(context.Context, *JSONRPCNotification) error
 
 // ReplyParseError returns a HandleParseErrorFunc that forwards the error to
 // provided writer.
-func ReplyParseError(w *StdioMessageWriter) HandleParseErrorFunc {
+func ReplyParseError(w MessageWriter) HandleParseErrorFunc {
 	return func(ctx context.Context, parseError *mcp.JSONRPCError) error {
 		return trace.Wrap(w.WriteMessage(ctx, parseError))
 	}
@@ -99,11 +102,51 @@ func LogAndIgnoreParseError(log *slog.Logger) HandleParseErrorFunc {
 	}
 }
 
-// StdioMessageReaderConfig is the config for StdioMessageReader.
-type StdioMessageReaderConfig struct {
-	// SourceReadCloser is the input to the read the message from.
-	// SourceReadCloser will be closed when reader finishes.
-	SourceReadCloser io.ReadCloser
+// TransportReader defines an interface for reading next raw/unmarshalled
+// message from the MCP transport.
+type TransportReader interface {
+	// Type is the transport type for logging purpose.
+	Type() string
+	// ReadMessage reads the next raw message.
+	ReadMessage(context.Context) (string, error)
+	// Close closes the transport.
+	Close() error
+}
+
+// StdioReader implements TransportReader for stdio transport
+type StdioReader struct {
+	io.Closer
+	br *bufio.Reader
+}
+
+// NewStdioReader creates a new StdioReader. Input reader can be either stdin or
+// stdout.
+func NewStdioReader(reader io.ReadCloser) *StdioReader {
+	return &StdioReader{
+		Closer: reader,
+		br:     bufio.NewReader(reader),
+	}
+}
+
+// ReadMessage reads the next line.
+func (r *StdioReader) ReadMessage(context.Context) (string, error) {
+	line, err := r.br.ReadString('\n')
+	if err != nil {
+		return "", trace.Wrap(err)
+	}
+	return line, nil
+}
+
+// Type returns "stdio".
+func (r *StdioReader) Type() string {
+	return "stdio"
+}
+
+// MessageReaderConfig is the config for MessageReader.
+type MessageReaderConfig struct {
+	// Transport is the input to the read the message from. Transport will be
+	// closed when reader finishes.
+	Transport TransportReader
 	// Logger is the slog.Logger.
 	Logger *slog.Logger
 	// ParentContext is the parent's context. Used for logging during tear down.
@@ -116,19 +159,19 @@ type StdioMessageReaderConfig struct {
 	OnParseError HandleParseErrorFunc
 	// OnRequest specifies the handler for handling request. Any error by the
 	// handler stops this message reader.
-	OnRequest func(context.Context, *JSONRPCRequest) error
+	OnRequest HandleRequestFunc
 	// OnResponse specifies the handler for handling response. Any error by the
 	// handler stops this message reader.
-	OnResponse func(context.Context, *JSONRPCResponse) error
+	OnResponse HandleResponseFunc
 	// OnNotification specifies the handler for handling notification. Any error
 	// returned by the handler stops this message reader.
-	OnNotification func(context.Context, *JSONRPCNotification) error
+	OnNotification HandleNotificationFunc
 }
 
 // CheckAndSetDefaults checks values and sets defaults.
-func (c *StdioMessageReaderConfig) CheckAndSetDefaults() error {
-	if c.SourceReadCloser == nil {
-		return trace.BadParameter("missing parameter SourceReadCloser")
+func (c *MessageReaderConfig) CheckAndSetDefaults() error {
+	if c.Transport == nil {
+		return trace.BadParameter("missing parameter Transport")
 	}
 	if c.OnParseError == nil {
 		return trace.BadParameter("missing parameter OnParseError")
@@ -148,26 +191,26 @@ func (c *StdioMessageReaderConfig) CheckAndSetDefaults() error {
 	return nil
 }
 
-// StdioMessageReader reads requests from provided reader.
-type StdioMessageReader struct {
-	cfg StdioMessageReaderConfig
+// MessageReader reads messages with provided transport and config.
+type MessageReader struct {
+	cfg MessageReaderConfig
 }
 
-// NewStdioMessageReader creates a new StdioMessageReader. Must call "Start" to
+// NewMessageReader creates a new MessageReader. Must call "Start" to
 // start the processing.
-func NewStdioMessageReader(cfg StdioMessageReaderConfig) (*StdioMessageReader, error) {
+func NewMessageReader(cfg MessageReaderConfig) (*MessageReader, error) {
 	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	return &StdioMessageReader{
+	return &MessageReader{
 		cfg: cfg,
 	}, nil
 }
 
 // Run starts reading requests from provided reader. Run blocks until an
 // error happens from the provided reader or any of the handler.
-func (r *StdioMessageReader) Run(ctx context.Context) {
-	r.cfg.Logger.InfoContext(ctx, "Start processing stdio messages")
+func (r *MessageReader) Run(ctx context.Context) {
+	r.cfg.Logger.InfoContext(ctx, "Start processing messages", "transport", r.cfg.Transport.Type())
 
 	finished := make(chan struct{})
 	go func() {
@@ -180,23 +223,22 @@ func (r *StdioMessageReader) Run(ctx context.Context) {
 	case <-ctx.Done():
 	}
 
-	r.cfg.Logger.InfoContext(r.cfg.ParentContext, "Finished processing stdio messages")
-	if err := r.cfg.SourceReadCloser.Close(); err != nil && !IsOKCloseError(err) {
-		r.cfg.Logger.ErrorContext(r.cfg.ParentContext, "Failed to close reader", "error", err)
+	r.cfg.Logger.InfoContext(r.cfg.ParentContext, "Finished processing messages", "transport", r.cfg.Transport.Type())
+	if err := r.cfg.Transport.Close(); err != nil && !IsOKCloseError(err) {
+		r.cfg.Logger.ErrorContext(r.cfg.ParentContext, "Failed to close transport", "error", err)
 	}
 	if r.cfg.OnClose != nil {
 		r.cfg.OnClose()
 	}
 }
 
-func (r *StdioMessageReader) startProcess(ctx context.Context) {
-	lineReader := bufio.NewReader(r.cfg.SourceReadCloser)
+func (r *MessageReader) startProcess(ctx context.Context) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 
-		if err := r.processNextLine(ctx, lineReader); err != nil {
+		if err := r.processNextMessage(ctx); err != nil {
 			if !IsOKCloseError(err) {
 				r.cfg.Logger.ErrorContext(ctx, "Failed to process line", "error", err)
 			}
@@ -205,16 +247,22 @@ func (r *StdioMessageReader) startProcess(ctx context.Context) {
 	}
 }
 
-func (r *StdioMessageReader) processNextLine(ctx context.Context, lineReader *bufio.Reader) error {
-	line, err := lineReader.ReadString('\n')
-	if err != nil {
-		return trace.Wrap(err, "reading line")
+func (r *MessageReader) processNextMessage(ctx context.Context) error {
+	rawMessage, err := r.cfg.Transport.ReadMessage(ctx)
+	switch {
+	case isReaderParseError(err):
+		rpcError := mcp.NewJSONRPCError(mcp.NewRequestId(nil), mcp.PARSE_ERROR, err.Error(), nil)
+		if err := r.cfg.OnParseError(ctx, &rpcError); err != nil {
+			return trace.Wrap(err, "handling reader parse error")
+		}
+	case err != nil:
+		return trace.Wrap(err, "reading next data")
 	}
 
-	r.cfg.Logger.Log(ctx, logutils.TraceLevel, "Trace stdio", "line", line)
+	r.cfg.Logger.Log(ctx, logutils.TraceLevel, "Trace read", "raw", rawMessage)
 
 	var base baseJSONRPCMessage
-	if parseError := json.Unmarshal([]byte(line), &base); parseError != nil {
+	if parseError := json.Unmarshal([]byte(rawMessage), &base); parseError != nil {
 		rpcError := mcp.NewJSONRPCError(mcp.NewRequestId(nil), mcp.PARSE_ERROR, parseError.Error(), nil)
 		if err := r.cfg.OnParseError(ctx, &rpcError); err != nil {
 			return trace.Wrap(err, "handling JSON unmarshal error")
@@ -239,7 +287,7 @@ func (r *StdioMessageReader) processNextLine(ctx context.Context, lineReader *bu
 		r.cfg.Logger.DebugContext(ctx, "Skipping response", "id", base.ID)
 		return nil
 	default:
-		rpcError := mcp.NewJSONRPCError(base.ID, mcp.PARSE_ERROR, "unknown message type", line)
+		rpcError := mcp.NewJSONRPCError(base.ID, mcp.PARSE_ERROR, "unknown message type", rawMessage)
 		return trace.Wrap(
 			r.cfg.OnParseError(ctx, &rpcError),
 			"handling unknown message type error",

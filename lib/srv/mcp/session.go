@@ -55,6 +55,8 @@ type SessionCtx struct {
 	// Note that for stdio-based MCP server, a new session ID is generated per
 	// connection instead of using the web session ID from the app route.
 	sessionID session.ID
+
+	externalSessionID string
 }
 
 func (c *SessionCtx) checkAndSetDefaults() error {
@@ -229,6 +231,35 @@ func (s *sessionHandler) makeToolsCallResponse(ctx context.Context, resp *mcputi
 		JSONRPC: resp.JSONRPC,
 		ID:      resp.ID,
 		Result:  listResult,
+	}
+}
+
+func (s *sessionHandler) onServerNotification(clientResponseWriter mcputils.MessageWriter) mcputils.HandleNotificationFunc {
+	return func(ctx context.Context, notification *mcputils.JSONRPCNotification) error {
+		return trace.Wrap(clientResponseWriter.WriteMessage(ctx, notification))
+	}
+}
+
+func (s *sessionHandler) onServerResponse(clientResponseWriter mcputils.MessageWriter) mcputils.HandleResponseFunc {
+	return func(ctx context.Context, response *mcputils.JSONRPCResponse) error {
+		msgToClient := s.processServerResponse(ctx, response)
+		return trace.Wrap(clientResponseWriter.WriteMessage(ctx, msgToClient))
+	}
+}
+
+func (s *sessionHandler) onClientNotification(serverRequestWriter mcputils.MessageWriter) mcputils.HandleNotificationFunc {
+	return func(ctx context.Context, notification *mcputils.JSONRPCNotification) error {
+		return trace.Wrap(serverRequestWriter.WriteMessage(ctx, notification))
+	}
+}
+
+func (s *sessionHandler) onClientRequest(clientResponseWriter, serverRequestWriter mcputils.MessageWriter) mcputils.HandleRequestFunc {
+	return func(ctx context.Context, req *mcputils.JSONRPCRequest) error {
+		msg, replyDirection := s.processClientRequest(ctx, req)
+		if replyDirection == replyToClient {
+			return trace.Wrap(clientResponseWriter.WriteMessage(ctx, msg))
+		}
+		return trace.Wrap(serverRequestWriter.WriteMessage(ctx, msg))
 	}
 }
 
