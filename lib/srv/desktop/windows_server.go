@@ -561,7 +561,7 @@ func (s *WindowsService) initializeLDAP() (*ldap.Conn, error) {
 		s.ldapTlsConfigExpiresAfter = s.cfg.Clock.Now().Add(windowsDesktopServiceCertTTL / 3)
 	}
 
-	conn, err := teleportldap.CreateClient(context.Background(), s.cfg.Domain, s.ldapTlsConfig)
+	conn, err := teleportldap.CreateClient(context.Background(), s.cfg.Domain, s.cfg.Site, s.ldapTlsConfig)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

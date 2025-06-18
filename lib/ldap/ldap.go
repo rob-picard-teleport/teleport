@@ -44,7 +44,7 @@ const (
 
 // CreateClient creates a new LDAP client by going through addresses in priority
 // order retrieved from the user's domain.
-func CreateClient(ctx context.Context, domain string, ldapTlsConfig *tls.Config) (*ldap.Conn, error) {
+func CreateClient(ctx context.Context, domain string, site string, ldapTlsConfig *tls.Config) (*ldap.Conn, error) {
 	var resolver *net.Resolver
 	dnsDialer := net.Dialer{
 		Timeout: ldapDialTimeout,
@@ -79,7 +79,7 @@ func CreateClient(ctx context.Context, domain string, ldapTlsConfig *tls.Config)
 	}
 	dnsDialer.Resolver = resolver
 
-	servers, err := windows.LocateLDAPServer(ctx, domain, resolver)
+	servers, err := windows.LocateLDAPServer(ctx, domain, site, resolver)
 	if err != nil {
 		return nil, trace.Wrap(err, "locating LDAP server")
 	}
