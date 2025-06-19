@@ -1024,7 +1024,7 @@ func newAccessList(t *testing.T, name string, clock clockwork.Clock) *accesslist
 			Name: name,
 		},
 		accesslist.Spec{
-			Title:       "title",
+			Title:       name,
 			Description: "test access list",
 			Owners: []accesslist.Owner{
 				{
@@ -1264,4 +1264,141 @@ func newAccessListService(t *testing.T, mem *memory.Memory, clock clockwork.Cloc
 	require.NoError(t, err)
 
 	return service
+}
+
+func TestAccessListDeletePrevention_NestedLists(t *testing.T) {
+	ctx := context.Background()
+	clock := clockwork.NewFakeClock()
+
+	mem, err := memory.New(memory.Config{
+		Context: ctx,
+		Clock:   clock,
+	})
+	require.NoError(t, err)
+
+	service := newAccessListService(t, mem, clock, true /* igsEnabled */)
+
+	t.Run("cannot delete list that is member of another list", func(t *testing.T) {
+		parentList := newAccessList(t, "parent-list", clock)
+		childList := newAccessList(t, "child-list", clock)
+
+		_, err = service.UpsertAccessList(ctx, parentList)
+		require.NoError(t, err)
+		_, err = service.UpsertAccessList(ctx, childList)
+		require.NoError(t, err)
+
+		childAsMember := newAccessListMember(t, parentList.GetName(), childList.GetName())
+		childAsMember.Spec.MembershipKind = accesslist.MembershipKindList
+		_, err = service.UpsertAccessListMember(ctx, childAsMember)
+		require.NoError(t, err)
+
+		// Try to delete childList, should fail because it's a member of parentList
+		err = service.DeleteAccessList(ctx, childList.GetName())
+		require.Error(t, err)
+		require.True(t, trace.IsAccessDenied(err), "expected access denied error, got %v", err)
+		require.Contains(t, err.Error(), fmt.Sprintf("Cannot delete '%s', as it is a member of one or more other Access Lists", childList.Spec.Title))
+		require.Contains(t, err.Error(), fmt.Sprintf("'%s'", parentList.Spec.Title))
+
+		err = service.DeleteAccessListMember(ctx, parentList.GetName(), childList.GetName())
+		require.NoError(t, err)
+
+		// Now childList should be deletable
+		err = service.DeleteAccessList(ctx, childList.GetName())
+		require.NoError(t, err)
+	})
+
+	t.Run("cannot delete list that is owner of another list", func(t *testing.T) {
+		targetList := newAccessList(t, "target-list", clock)
+		ownerList := newAccessList(t, "owner-list", clock)
+
+		_, err = service.UpsertAccessList(ctx, targetList)
+		require.NoError(t, err)
+		_, err = service.UpsertAccessList(ctx, ownerList)
+		require.NoError(t, err)
+
+		owner := accesslist.Owner{
+			Name:           ownerList.GetName(),
+			MembershipKind: accesslist.MembershipKindList,
+			Description:    "owner list as owner",
+		}
+		targetList.Spec.Owners = append(targetList.Spec.Owners, owner)
+		_, err = service.UpsertAccessList(ctx, targetList)
+		require.NoError(t, err)
+
+		// Deletion should fail because it's an owner of targetList
+		err = service.DeleteAccessList(ctx, ownerList.GetName())
+		require.Error(t, err)
+		require.True(t, trace.IsAccessDenied(err), "expected access denied error, got %v", err)
+		require.Contains(t, err.Error(), fmt.Sprintf("Cannot delete '%s', as it is an owner of one or more other Access Lists", ownerList.Spec.Title))
+		require.Contains(t, err.Error(), fmt.Sprintf("'%s'", targetList.Spec.Title))
+
+		var newOwners []accesslist.Owner
+		for _, o := range targetList.Spec.Owners {
+			if o.Name != ownerList.GetName() || o.MembershipKind != accesslist.MembershipKindList {
+				newOwners = append(newOwners, o)
+			}
+		}
+		targetList.Spec.Owners = newOwners
+		_, err = service.UpsertAccessList(ctx, targetList)
+		require.NoError(t, err)
+
+		// Now ownerList should be deletable
+		err = service.DeleteAccessList(ctx, ownerList.GetName())
+		require.NoError(t, err)
+	})
+
+	t.Run("handles deleted referenced lists", func(t *testing.T) {
+		ownerList := newAccessList(t, "owner-list", clock)
+		targetList := newAccessList(t, "target-list", clock)
+
+		_, err = service.UpsertAccessList(ctx, ownerList)
+		require.NoError(t, err)
+		_, err = service.UpsertAccessList(ctx, targetList)
+		require.NoError(t, err)
+
+		targetList, err = service.GetAccessList(ctx, targetList.GetName())
+		require.NoError(t, err)
+
+		ownerAsOwner := accesslist.Owner{
+			Name:           ownerList.GetName(),
+			MembershipKind: accesslist.MembershipKindList,
+			Description:    "owner list as owner",
+		}
+		targetList.Spec.Owners = append(targetList.Spec.Owners, ownerAsOwner)
+
+		_, err = service.UpsertAccessList(ctx, targetList)
+		require.NoError(t, err)
+
+		ownerListUpdated, err := service.GetAccessList(ctx, ownerList.GetName())
+		require.NoError(t, err)
+		require.Contains(t, ownerListUpdated.Status.OwnerOf, targetList.GetName(),
+			"ownerList should be marked as owner of targetList")
+
+		err = service.DeleteAccessList(ctx, ownerList.GetName())
+		require.Error(t, err)
+		require.True(t, trace.IsAccessDenied(err))
+		require.Contains(t, err.Error(), "owner of one or more other Access Lists")
+
+		// Manually delete targetList from the backend, bypassing DeleteAccessList, which would clean up references
+		// This simulates the referenced list being gone but ownerList.Status.OwnerOf
+		// still contains the reference (should never happen in practice, but should be handled defensively).
+		err = service.service.DeleteResource(ctx, targetList.GetName())
+		require.NoError(t, err)
+		err = service.memberService.WithPrefix(targetList.GetName()).DeleteAllResources(ctx)
+		require.NoError(t, err)
+
+		_, err = service.GetAccessList(ctx, targetList.GetName())
+		require.True(t, trace.IsNotFound(err), "targetList should be deleted")
+
+		ownerListAfterBypass, err := service.GetAccessList(ctx, ownerList.GetName())
+		require.NoError(t, err)
+		require.Contains(t, ownerListAfterBypass.Status.OwnerOf, targetList.GetName(),
+			"ownerList.Status.OwnerOf should contain stale reference to deleted targetList")
+
+		err = service.DeleteAccessList(ctx, ownerList.GetName())
+		require.NoError(t, err, "should be able to delete ownerList when referenced list no longer exists")
+
+		_, err = service.GetAccessList(ctx, ownerList.GetName())
+		require.True(t, trace.IsNotFound(err), "ownerList should be deleted")
+	})
 }
