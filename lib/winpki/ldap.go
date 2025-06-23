@@ -25,7 +25,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -69,16 +69,21 @@ type LDAPConfig struct {
 	CA *x509.Certificate
 	// Automatically locate the LDAP server using DNS SRV records.
 	// https://ldap.com/dns-srv-records-for-ldap/
-	LocateServer bool //nolint:unused // False-positive
+	LocateServer bool
 	// Use LDAP site to locate servers from a specific logical site.
 	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/b645c125-a7da-4097-84a1-2fa7cea07714#gt_8abdc986-5679-42d9-ad76-b11eb5a0daba
-	Site string //nolint:unused // False-positive
+	Site string
+	// Logger is the logger for the service.
+	Logger *slog.Logger
 }
 
 // Check verifies this LDAPConfig
 func (cfg LDAPConfig) Check() error {
 	if cfg.Addr == "" && !cfg.LocateServer {
 		return trace.BadParameter("Addr is required if locate_server is false in LDAPConfig")
+	}
+	if !cfg.LocateServer && cfg.Site != "" {
+		cfg.Logger.Warn("Site is set, but locate_server is false. Site will be ignored.")
 	}
 	if cfg.Domain == "" {
 		return trace.BadParameter("missing Domain in LDAPConfig")
@@ -297,8 +302,9 @@ func crlKeyName(caType types.CertAuthType) string {
 	}
 }
 
-// CreateClient creates a new LDAP client by going through addresses in priority
-// order retrieved from the user's domain.
+// CreateClient dials an LDAP server using the provided TLS config.
+// The server is either obtained directly from the configuration or
+// discovered via DNS.
 func (c *LDAPConfig) CreateClient(ctx context.Context, ldapTlsConfig *tls.Config) (*ldap.Conn, error) {
 	dnsDialer := net.Dialer{
 		Timeout: ldapDialTimeout,
@@ -308,8 +314,8 @@ func (c *LDAPConfig) CreateClient(ctx context.Context, ldapTlsConfig *tls.Config
 	if c.LocateServer {
 		var resolver *net.Resolver
 		resolverAddr := os.Getenv("TELEPORT_DESKTOP_ACCESS_RESOLVER_IP")
-		log.Printf("DEBUG: TELEPORT_DESKTOP_ACCESS_RESOLVER_IP: %q", resolverAddr)
 		if resolverAddr != "" {
+			c.Logger.Debug("Using custom DNS resolver address", "address", resolverAddr)
 			// Check if resolver address has a port
 			host, port, err := net.SplitHostPort(resolverAddr)
 			if err != nil {
@@ -317,7 +323,6 @@ func (c *LDAPConfig) CreateClient(ctx context.Context, ldapTlsConfig *tls.Config
 				port = "53"
 			}
 			customResolverAddr := net.JoinHostPort(host, port)
-			log.Printf("DEBUG: Using custom resolver address: %s", customResolverAddr)
 
 			resolver = &net.Resolver{
 				PreferGo: true,
@@ -326,7 +331,6 @@ func (c *LDAPConfig) CreateClient(ctx context.Context, ldapTlsConfig *tls.Config
 				},
 			}
 		} else {
-			log.Printf("DEBUG: Using net.DefaultResolver")
 			resolver = &net.Resolver{
 				PreferGo: true,
 				Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
@@ -358,7 +362,7 @@ func (c *LDAPConfig) CreateClient(ctx context.Context, ldapTlsConfig *tls.Config
 
 		if err != nil {
 			// If the connection fails, try the next server
-			log.Printf("DEBUG: Error connecting to LDAP server %q: %v", server, err)
+			c.Logger.Debug("Error connecting to LDAP server %q: %v, trying next available server.", server, err)
 			continue
 		}
 
