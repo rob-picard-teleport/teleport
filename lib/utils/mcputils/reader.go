@@ -177,9 +177,14 @@ func (r *MessageReader) startProcess(ctx context.Context) {
 
 func (r *MessageReader) processNextLine(ctx context.Context) error {
 	rawMessage, err := r.cfg.Transport.ReadMessage(ctx)
-	if err != nil {
-		// TODO(greedy52) handle ParseError from Transport.ReadMessage.
-		return trace.Wrap(err, "reading line")
+	switch {
+	case isReaderParseError(err):
+		rpcError := mcp.NewJSONRPCError(mcp.NewRequestId(nil), mcp.PARSE_ERROR, err.Error(), nil)
+		if err := r.cfg.OnParseError(ctx, &rpcError); err != nil {
+			return trace.Wrap(err, "handling reader parse error")
+		}
+	case err != nil:
+		return trace.Wrap(err, "reading next message")
 	}
 
 	r.cfg.Logger.Log(ctx, logutils.TraceLevel, "Trace read", "raw", rawMessage)
@@ -216,4 +221,23 @@ func (r *MessageReader) processNextLine(ctx context.Context) error {
 			"handling unknown message type error",
 		)
 	}
+}
+
+// ReadOneResponse reads one message from the reader and marshals it to a
+// response.
+func ReadOneResponse(ctx context.Context, reader TransportReader) (*JSONRPCResponse, error) {
+	rawMessage, err := reader.ReadMessage(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	var base baseJSONRPCMessage
+	if parseError := json.Unmarshal([]byte(rawMessage), &base); parseError != nil {
+		return nil, trace.Wrap(parseError)
+	}
+
+	if !base.isResponse() {
+		return nil, trace.BadParameter("message is not a response")
+	}
+	return base.makeResponse(), nil
 }
