@@ -20,10 +20,10 @@ package winpki
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base32"
 	"log/slog"
 
-	"github.com/go-ldap/ldap/v3"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/types"
@@ -66,7 +66,7 @@ type CertificateStoreConfig struct {
 }
 
 // Update publishes an empty certificate revocation list to LDAP.
-func (c *CertificateStoreClient) Update(ctx context.Context, client *ldap.Conn) error {
+func (c *CertificateStoreClient) Update(ctx context.Context, tc *tls.Config) error {
 	caType := types.UserCA
 
 	// TODO(zmb3): check for the presence of Teleport's CA in the NTAuth store
@@ -96,7 +96,7 @@ func (c *CertificateStoreClient) Update(ctx context.Context, client *ldap.Conn) 
 			}
 			subjectID := base32.HexEncoding.EncodeToString(cert.SubjectKeyId)
 			issuer := subjectID + "_" + c.cfg.ClusterName
-			if err := c.updateCRL(ctx, issuer, keyPair.CRL, caType, client); err != nil {
+			if err := c.updateCRL(ctx, issuer, keyPair.CRL, caType, tc); err != nil {
 				return trace.Wrap(err)
 			}
 		}
@@ -110,14 +110,14 @@ func (c *CertificateStoreClient) Update(ctx context.Context, client *ldap.Conn) 
 			return trace.Wrap(err, "generating CRL")
 		}
 
-		if err := c.updateCRL(ctx, c.cfg.ClusterName, crlDER, caType, client); err != nil {
+		if err := c.updateCRL(ctx, c.cfg.ClusterName, crlDER, caType, tc); err != nil {
 			return trace.Wrap(err, "updating CRL over LDAP")
 		}
 	}
 	return nil
 }
 
-func (c *CertificateStoreClient) updateCRL(ctx context.Context, issuer string, crlDER []byte, caType types.CertAuthType, client *ldap.Conn) error {
+func (c *CertificateStoreClient) updateCRL(ctx context.Context, issuer string, crlDER []byte, caType types.CertAuthType, tc *tls.Config) error {
 	// Publish the CRL for current cluster CA. For trusted clusters, their
 	// respective windows_desktop_services will publish CRLs of their CAs so we
 	// don't have to do it here.
@@ -135,25 +135,27 @@ func (c *CertificateStoreClient) updateCRL(ctx context.Context, issuer string, c
 	crlDN := CRLDN(issuer, c.cfg.Domain, caType)
 
 	// Create the parent container.
-	if err := c.cfg.LC.CreateContainer(containerDN, client); err != nil {
+	if err := c.cfg.LC.CreateContainer(ctx, containerDN, tc); err != nil {
 		return trace.Wrap(err, "creating CRL container")
 	}
 
 	// Create the CRL object itself.
 	if err := c.cfg.LC.Create(
+		ctx,
 		crlDN,
 		"cRLDistributionPoint",
 		map[string][]string{"certificateRevocationList": {string(crlDER)}},
-		client,
+		tc,
 	); err != nil {
 		if !trace.IsAlreadyExists(err) {
 			return trace.Wrap(err)
 		}
 		// CRL already exists, update it.
 		if err := c.cfg.LC.Update(
+			ctx,
 			crlDN,
 			map[string][]string{"certificateRevocationList": {string(crlDER)}},
-			client,
+			tc,
 		); err != nil {
 			return trace.Wrap(err)
 		}
