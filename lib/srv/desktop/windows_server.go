@@ -260,7 +260,7 @@ func (cfg *WindowsServiceConfig) CheckAndSetDefaults() error {
 		return trace.Wrap(err)
 	}
 	if cfg.LDAPConfig.Addr != "" {
-		if err := cfg.LDAPConfig.Check(); err != nil {
+		if err := cfg.LDAPConfig.CheckAndSetDefaults(); err != nil {
 			return trace.Wrap(err)
 		}
 	}

@@ -19,6 +19,7 @@
 package winpki
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -32,6 +33,7 @@ import (
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
+	"github.com/gravitational/teleport"
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/types"
@@ -77,8 +79,8 @@ type LDAPConfig struct {
 	Logger *slog.Logger
 }
 
-// Check verifies this LDAPConfig
-func (cfg LDAPConfig) Check() error {
+// CheckAndSetDefaults verifies this LDAPConfig
+func (cfg LDAPConfig) CheckAndSetDefaults() error {
 	if cfg.Addr == "" && !cfg.LocateServer {
 		return trace.BadParameter("Addr is required if locate_server is false in LDAPConfig")
 	}
@@ -91,6 +93,8 @@ func (cfg LDAPConfig) Check() error {
 	if cfg.Username == "" {
 		return trace.BadParameter("missing Username in LDAPConfig")
 	}
+
+	cfg.Logger = cmp.Or(cfg.Logger, slog.With(teleport.ComponentKey, teleport.ComponentWindowsDesktop))
 	return nil
 }
 
