@@ -34,10 +34,9 @@ import (
 
 	"github.com/go-ldap/ldap/v3"
 	"github.com/gravitational/teleport"
-	"github.com/gravitational/trace"
-
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/tlsca"
+	"github.com/gravitational/trace"
 )
 
 const (
