@@ -599,9 +599,16 @@ To configure Teleport to protect access to Windows desktops:
    windows_desktop_service:
      enabled: true
      ldap:
+       # Address of single LDAP server.
        # Port must be included for the addr.
        # LDAPS port is 636 by default (example.com:636)
        addr: "$LDAP_SERVER_ADDRESS"
+       # If you have more than one LDAP server, you can
+       # enabled locate_server instead of addr to get
+       # LDAP servers from DNS SRV records of your domain.
+       locate_server: true
+       # Optional: specify a logical site to get LDAP servers from.
+       site: "$LDAP_SITE_NAME"
        domain: "$LDAP_DOMAIN_NAME"
        username: "$LDAP_USERNAME"
        sid: "$LDAP_USER_SID"
@@ -684,7 +691,7 @@ To connect to a Windows desktop:
 In Active Directory environments, Teleport can be configured to discover hosts
 via LDAP. LDAP discovery is enabled by adding one or more discovery configs to
 the `discovery_configs` field in the Teleport Windows Desktop Service
-configuration. You can set `base_dn` to a wildcard `'*` to search from the root
+configuration. You can set `base_dn` to a wildcard `'*'` to search from the root
 of the domain, or you can specify an alternate base distinguished name to search
 from.
 
