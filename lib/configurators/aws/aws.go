@@ -740,6 +740,8 @@ func policiesTarget(
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
+		partitionID = assumeRoleIdentity.GetPartition()
+		accountID = assumeRoleIdentity.GetAccountID()
 	}
 
 	attachToUser := config.Flags.AttachToUser
@@ -775,7 +777,12 @@ func policiesTarget(
 	}
 
 	if assumeRoleIdentity != nil {
-		return assumeRoleIdentity, nil
+		assumeRoleIAMClient, err := config.GetIAMClient(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		fullAssumeRoleIdentity, err := getRoleARNForAssumedRole(assumeRoleIAMClient, assumeRoleIdentity)
+		return fullAssumeRoleIdentity, trace.Wrap(err)
 	}
 
 	if currentIdentity.GetType() == awslib.ResourceTypeAssumedRole {
