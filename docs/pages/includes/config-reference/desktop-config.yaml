@@ -19,7 +19,7 @@ windows_desktop_service:
     # For best results, this address should point to a highly-available
     # endpoint rather than a single domain controller.
     addr: "$LDAP_SERVER_ADDRESS"
-    # Locate_server gets a list of available LDAP servers from the AD 
+    # locate_server gets a list of available LDAP servers from the AD 
     # domain's SRV records. When enabled, addr is ignored.
     locate_server: true
     # Optional: Site is the logical AD site that locate_server should return.
