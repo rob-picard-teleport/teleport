@@ -863,6 +863,39 @@ and you want to enable NLA, then you should either:
 - manually set the `teleport.dev/computer_name` label to the proper hostname
 - ensure that the host's `addr` is its actual hostname
 
+## LDAP Server Selection
+
+To find Desktops to connect to in Active Directory, Teleport must be given the
+address of an LDAP server. There are two ways to specify the LDAP server, either
+by providing a single LDAP server address in the `addr` field, or by enabling
+`locate_server` to automatically discover the LDAP server from DNS SRV records.
+
+If you opt to use `addr`, for the best results, the address should point to a
+highly-available endpoint to avoid downtime. The port for LDAPS should also be
+included, which is typically 636.
+
+```yaml
+windows_desktop_service:
+   enabled: true
+   ldap:
+      addr: ldap.example.com:636
+```
+
+Alternatively, you can enable `locate_server` to automatically discover an
+LDAP server from the DNS SRV records of your specified `domain`. This is useful
+if you have multiple LDAP servers for high availability and load balancing.
+Optionally, you can specify a `site` to limit the discovery to a specific
+Active Directory site.
+
+```yaml
+windows_desktop_service:
+   enabled: true
+   ldap:
+      locate_server: true
+      domain: example.com
+      site: "my-site" # optional
+```
+
 ## Next steps
 
 If you encounter any issues, see [Troubleshooting](./troubleshooting.mdx) for
