@@ -2547,7 +2547,7 @@ func TestGenerateUserCertWithCertExtension(t *testing.T) {
 
 	_, sshPubKey, _, tlsPubKey := newSSHAndTLSKeyPairs(t)
 
-	sshCert, _, err := p.a.GenerateUserTestCerts(auth.GenerateUserTestCertsRequest{
+	sshCert, _, err := p.a.GenerateUserTestCertsWithContext(ctx, auth.GenerateUserTestCertsRequest{
 		SSHPubKey: sshPubKey,
 		TLSPubKey: tlsPubKey,
 		Username:  user.GetName(),
@@ -2670,7 +2670,7 @@ func TestGenerateUserCertWithLocks(t *testing.T) {
 		},
 	}
 
-	_, _, err = p.a.GenerateUserTestCerts(certReq)
+	_, _, err = p.a.GenerateUserTestCertsWithContext(ctx, certReq)
 	require.NoError(t, err)
 
 	testTargets := append(
@@ -2701,7 +2701,7 @@ func TestGenerateUserCertWithLocks(t *testing.T) {
 				t.Fatal("Timeout waiting for lock update.")
 			}
 
-			_, _, err = p.a.GenerateUserTestCerts(certReq)
+			_, _, err = p.a.GenerateUserTestCertsWithContext(ctx, certReq)
 			require.Error(t, err)
 			require.EqualError(t, err, services.LockInForceAccessDenied(lock).Error())
 		})
@@ -2766,7 +2766,7 @@ func TestGenerateUserCertWithUserLoginState(t *testing.T) {
 		Username:  user.GetName(),
 	}
 
-	rawSSHCert, _, err := p.a.GenerateUserTestCerts(certReq)
+	rawSSHCert, _, err := p.a.GenerateUserTestCertsWithContext(ctx, certReq)
 	require.NoError(t, err)
 
 	sshCert, err := sshutils.ParseCertificate(rawSSHCert)
@@ -2818,7 +2818,7 @@ func TestGenerateUserCertWithUserLoginState(t *testing.T) {
 		Username:  user.GetName(),
 	}
 
-	rawSSHCert, _, err = p.a.GenerateUserTestCerts(certReq)
+	rawSSHCert, _, err = p.a.GenerateUserTestCertsWithContext(ctx, certReq)
 	require.NoError(t, err)
 
 	sshCert, err = sshutils.ParseCertificate(rawSSHCert)
@@ -2996,7 +2996,7 @@ func TestGenerateUserCertWithHardwareKeySupport(t *testing.T) {
 			_, err = p.a.UpsertAuthPreference(ctx, authPref)
 			require.NoError(t, err)
 
-			_, _, err = p.a.GenerateUserTestCerts(certReq)
+			_, _, err = p.a.GenerateUserTestCertsWithContext(ctx, certReq)
 			tt.assertErr(t, err)
 		})
 	}
@@ -3071,7 +3071,7 @@ func TestGenerateKubernetesUserCert(t *testing.T) {
 				KubernetesCluster: tt.kubernetesCluster,
 			}
 
-			_, _, err = p.a.GenerateUserTestCerts(certReq)
+			_, _, err = p.a.GenerateUserTestCertsWithContext(ctx, certReq)
 			tt.assertErr(t, err)
 		})
 	}
