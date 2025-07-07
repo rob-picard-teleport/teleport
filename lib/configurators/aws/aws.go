@@ -486,7 +486,7 @@ func (c *ConfiguratorConfig) CheckAndSetDefaults() error {
 	return nil
 }
 
-func (c *ConfiguratorConfig) getAssumedRoles() []types.AssumeRole {
+func (c *ConfiguratorConfig) getDistinctAssumedRoles() []types.AssumeRole {
 	matchers := awsMatchersFromConfig(c.Flags, c.ServiceConfig)
 	if len(matchers) == 0 {
 		return []types.AssumeRole{{}}
@@ -518,7 +518,7 @@ func NewAWSConfigurator(config ConfiguratorConfig) (configurators.Configurator, 
 		return nil, trace.Wrap(err)
 	}
 
-	assumedRoles := config.getAssumedRoles()
+	assumedRoles := config.getDistinctAssumedRoles()
 	targetAccounts := make([]string, 0, len(assumedRoles))
 	for _, ar := range assumedRoles {
 		identity, err := config.GetIdentity(ar.RoleARN, ar.ExternalID)
@@ -708,7 +708,7 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 		}
 	}
 
-	assumedRoles := config.getAssumedRoles()
+	assumedRoles := config.getDistinctAssumedRoles()
 	var allActions []configurators.ConfiguratorAction
 	for _, ar := range assumedRoles {
 		target, err := policiesTarget(config, ar, currentIdentity, currentIAMClient)

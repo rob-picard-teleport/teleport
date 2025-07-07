@@ -2091,3 +2091,78 @@ func Test_getFallbackRegion(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDistinctAssumedRoles(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                string
+		assumeRoles         []*types.AssumeRole
+		expectedAssumeRoles []types.AssumeRole
+	}{
+		{
+			name:                "empty",
+			expectedAssumeRoles: []types.AssumeRole{{}},
+		},
+		{
+			name: "multiple",
+			assumeRoles: []*types.AssumeRole{
+				nil,
+				{RoleARN: "12345678", ExternalID: "foo"},
+				{RoleARN: "87654321"},
+			},
+			expectedAssumeRoles: []types.AssumeRole{
+				{},
+				{RoleARN: "12345678", ExternalID: "foo"},
+				{RoleARN: "87654321"},
+			},
+		},
+		{
+			name: "filter out duplicates",
+			assumeRoles: []*types.AssumeRole{
+				nil,
+				{RoleARN: "12345678"},
+				{RoleARN: "87654321", ExternalID: "foo"},
+				{RoleARN: "12345678"},
+				{RoleARN: "87654321", ExternalID: "foo"},
+				nil,
+			},
+			expectedAssumeRoles: []types.AssumeRole{
+				{},
+				{RoleARN: "12345678"},
+				{RoleARN: "87654321", ExternalID: "foo"},
+			},
+		},
+		{
+			name: "preserve duplicate arn when external id differs",
+			assumeRoles: []*types.AssumeRole{
+				{RoleARN: "12345678", ExternalID: "foo"},
+				{RoleARN: "12345678", ExternalID: "bar"},
+			},
+			expectedAssumeRoles: []types.AssumeRole{
+				{RoleARN: "12345678", ExternalID: "foo"},
+				{RoleARN: "12345678", ExternalID: "bar"},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			matchers := make([]types.AWSMatcher, 0, len(tc.assumeRoles))
+			for _, ar := range tc.assumeRoles {
+				matchers = append(matchers, types.AWSMatcher{
+					AssumeRole: ar,
+				})
+			}
+			config := ConfiguratorConfig{
+				Flags: configurators.BootstrapFlags{
+					Service: configurators.DiscoveryService,
+				},
+				ServiceConfig: &servicecfg.Config{
+					Discovery: servicecfg.DiscoveryConfig{
+						AWSMatchers: matchers,
+					},
+				},
+			}
+			require.ElementsMatch(t, tc.expectedAssumeRoles, config.getDistinctAssumedRoles())
+		})
+	}
+}
