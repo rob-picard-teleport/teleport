@@ -247,7 +247,7 @@ func (p *PluginV1) CheckAndSetDefaults() error {
 		if len(staticCreds.Labels) == 0 {
 			return trace.BadParameter("labels must be specified")
 		}
-
+	// TODO: Add case for Intune.
 	case *PluginSpecV1_Jira:
 		if settings.Jira == nil {
 			return trace.BadParameter("missing Jira settings")
