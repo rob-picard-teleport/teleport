@@ -521,6 +521,10 @@ func NewAWSConfigurator(config ConfiguratorConfig) (configurators.Configurator, 
 	assumedRoles := config.getDistinctAssumedRoles()
 	targetAccounts := make([]string, 0, len(assumedRoles))
 	for _, ar := range assumedRoles {
+		if config.Flags.Manual && ar.RoleARN == "" {
+			targetAccounts = append(targetAccounts, targetIdentityARNSectionPlaceholder)
+			continue
+		}
 		identity, err := config.GetIdentity(ar.RoleARN, ar.ExternalID)
 		if err != nil {
 			return nil, trace.Wrap(err)
@@ -715,7 +719,7 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 		if err != nil {
 			var unreachableErr unreachablePolicyTargetError
 			if errors.As(err, &unreachableErr) {
-				fmt.Printf("⚠️ Unable to bootstrap role %s [%s]: %s\n", unreachableErr.target.GetName(), unreachableErr.target.GetAccountID(), err.Error())
+				fmt.Printf("⚠️ Skipping matchers with identity %q: %s\n", unreachableErr.assumedRole, unreachableErr.Error())
 				continue
 			}
 			return nil, trace.Wrap(err)
@@ -746,9 +750,8 @@ type unreachablePolicyTargetError struct {
 
 func (e unreachablePolicyTargetError) Error() string {
 	return fmt.Sprintf(
-		"%s %q [account %s] is unreachable from %s %q [account %s]",
-		e.target.GetType(), e.target.GetName(), e.target.GetAccountID(),
-		e.assumedRole.GetType(), e.assumedRole.GetName(), e.assumedRole.GetAccountID(),
+		"%q is unreachable from %q",
+		e.target, e.assumedRole,
 	)
 }
 
