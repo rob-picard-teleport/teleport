@@ -713,6 +713,11 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 	for _, ar := range assumedRoles {
 		target, err := policiesTarget(config, ar, currentIdentity, currentIAMClient)
 		if err != nil {
+			var unreachableErr unreachablePolicyTargetError
+			if errors.As(err, &unreachableErr) {
+				fmt.Printf("⚠️ Unable to bootstrap role %s [%s]: %s\n", unreachableErr.target.GetName(), unreachableErr.target.GetAccountID(), err.Error())
+				continue
+			}
 			return nil, trace.Wrap(err)
 		}
 		targetCfg, err := getTargetConfig(config.Flags, config.ServiceConfig, target, ar)
@@ -732,6 +737,19 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 	}
 
 	return allActions, nil
+}
+
+type unreachablePolicyTargetError struct {
+	target      awslib.Identity
+	assumedRole awslib.Identity
+}
+
+func (e unreachablePolicyTargetError) Error() string {
+	return fmt.Sprintf(
+		"%s %q [account %s] is unreachable from %s %q [account %s]",
+		e.target.GetType(), e.target.GetName(), e.target.GetAccountID(),
+		e.assumedRole.GetType(), e.assumedRole.GetName(), e.assumedRole.GetAccountID(),
+	)
 }
 
 // policiesTarget defines which target and its type the policies will be
@@ -774,7 +792,7 @@ func policiesTarget(
 			return nil, trace.Wrap(err)
 		}
 		if assumeRoleIdentity != nil && assumeRoleIdentity.GetAccountID() != userIdentity.GetAccountID() {
-			return nil, trace.BadParameter("user %q unreachable from assumed role %q", userIdentity.GetName(), assumeRoleIdentity.GetName())
+			return nil, unreachablePolicyTargetError{target: userIdentity, assumedRole: assumeRoleIdentity}
 		}
 		return userIdentity, nil
 	}
@@ -790,7 +808,7 @@ func policiesTarget(
 			return nil, trace.Wrap(err)
 		}
 		if assumeRoleIdentity != nil && assumeRoleIdentity.GetAccountID() != roleIdentity.GetAccountID() {
-			return nil, trace.BadParameter("role %q unreachable from assumed role %q", roleIdentity.GetName(), assumeRoleIdentity.GetName())
+			return nil, unreachablePolicyTargetError{target: roleIdentity, assumedRole: assumeRoleIdentity}
 		}
 		return roleIdentity, nil
 	}
