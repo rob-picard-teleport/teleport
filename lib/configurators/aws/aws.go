@@ -288,7 +288,8 @@ type awsConfigurator struct {
 	// actions list of the configurator actions, those are populated on the
 	// `build` function.
 	actions []configurators.ConfiguratorAction
-
+	// targetAccounts is a list of AWS account IDs that will be affected by
+	// configuration.
 	targetAccounts []string
 }
 
@@ -301,12 +302,15 @@ type ConfiguratorConfig struct {
 	Policies awslib.Policies
 	// Identity is the current AWS credentials chain identity.
 	Identity awslib.Identity
-
+	// awsConfigs is a map of role ARN/external ID -> AWS config.
 	awsConfigs map[string]aws.Config
-	policies   map[string]awslib.Policies
-	identities map[string]awslib.Identity
+	// policies is a map of role ARN/external ID -> AWS policies client.
+	policies map[string]awslib.Policies
+	// identity is a cached AWS identity.
+	identity awslib.Identity
+	// iamClients is a map of role ARN/external ID -> AWS IAM client.
 	iamClients map[string]iamClient
-	// ssmClients is a mapping of region -> AWS SSM client
+	// ssmClients is a mapping of role ARN/external ID/region -> AWS SSM client
 	ssmClients map[string]ssmClient
 }
 
@@ -314,8 +318,13 @@ func configCacheKey(assumeRole, externalID, region string) string {
 	return fmt.Sprintf("%s/%s/%s", assumeRole, externalID, region)
 }
 
-func (c *ConfiguratorConfig) GetAWSConfig(assumeRole, externalID string) (aws.Config, error) {
-	key := configCacheKey(assumeRole, externalID, "")
+// getAWSConfig gets the cached AWS config for the specified assume role ARN
+// and external ID. assumeRoleARN and externalID may be empty.
+func (c *ConfiguratorConfig) getAWSConfig(assumeRoleARN, externalID string) (aws.Config, error) {
+	if c.Flags.Manual {
+		return aws.Config{}, trace.BadParameter("GetAWSConfig not allowed in manual mode")
+	}
+	key := configCacheKey(assumeRoleARN, externalID, "")
 	if cfg, ok := c.awsConfigs[key]; ok {
 		return cfg, nil
 	}
@@ -329,7 +338,7 @@ func (c *ConfiguratorConfig) GetAWSConfig(assumeRole, externalID string) (aws.Co
 			return getFallbackRegion(ctx, os.Stdout, nil), nil
 		}),
 		awsconfig.WithAmbientCredentials(),
-		awsconfig.WithAssumeRole(assumeRole, externalID),
+		awsconfig.WithAssumeRole(assumeRoleARN, externalID),
 	)
 
 	if err != nil {
@@ -339,13 +348,25 @@ func (c *ConfiguratorConfig) GetAWSConfig(assumeRole, externalID string) (aws.Co
 	return cfg, nil
 }
 
-func (c *ConfiguratorConfig) GetIdentity(assumeRole, externalID string) (awslib.Identity, error) {
-	key := configCacheKey(assumeRole, externalID, "")
-	if identity, ok := c.identities[key]; ok {
-		return identity, nil
+// getIdentity gets the cached AWS identity for the specified assume role ARN
+// and external ID. assumeRoleARN and externalID may be empty.
+func (c *ConfiguratorConfig) getIdentity(assumeRoleARN, externalID string) (awslib.Identity, error) {
+	// Assumed roles can be determined from the ARN.
+	if assumeRoleARN != "" {
+		identity, err := awslib.IdentityFromArn(assumeRoleARN)
+		return identity, trace.Wrap(err)
 	}
-
-	awsCfg, err := c.GetAWSConfig(assumeRole, externalID)
+	// Return a placeholder in manual mode.
+	if c.Flags.Manual {
+		identity, err := awslib.IdentityFromArn(buildIAMARN(targetIdentityARNSectionPlaceholder, targetIdentityARNSectionPlaceholder, "user", defaultAttachUser))
+		return identity, trace.Wrap(err)
+	}
+	// Check cache.
+	if c.identity != nil {
+		return c.identity, nil
+	}
+	// Fetch identity.
+	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -353,20 +374,26 @@ func (c *ConfiguratorConfig) GetIdentity(assumeRole, externalID string) (awslib.
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	c.identities[key] = identity
+	c.identity = identity
 	return identity, nil
 }
 
-func (c *ConfiguratorConfig) GetPolicies(assumeRole, externalID string) (awslib.Policies, error) {
-	key := configCacheKey(assumeRole, externalID, "")
+func (c *ConfiguratorConfig) getCurrentIdentity() (awslib.Identity, error) {
+	return c.getIdentity(c.Flags.AssumeRoleARN, c.Flags.ExternalID)
+}
+
+// getPolicies gets the cached AWS policy client for the specified assume role ARN
+// and external ID. assumeRoleARN and externalID may be empty.
+func (c *ConfiguratorConfig) getPolicies(assumeRoleARN, externalID string) (awslib.Policies, error) {
+	key := configCacheKey(assumeRoleARN, externalID, "")
 	if policies, ok := c.policies[key]; ok {
 		return policies, nil
 	}
-	awsCfg, err := c.GetAWSConfig(assumeRole, externalID)
+	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	identity, err := c.GetIdentity(assumeRole, externalID)
+	identity, err := c.getIdentity(assumeRoleARN, externalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -380,12 +407,14 @@ func (c *ConfiguratorConfig) GetPolicies(assumeRole, externalID string) (awslib.
 	return policies, nil
 }
 
-func (c *ConfiguratorConfig) GetIAMClient(assumeRole, externalID string) (iamClient, error) {
-	key := configCacheKey(assumeRole, externalID, "")
+// getIAMClient gets the cached AWS IAM client for the specified assume role ARN
+// and external ID. assumeRoleARN and externalID may be empty.
+func (c *ConfiguratorConfig) getIAMClient(assumeRoleARN, externalID string) (iamClient, error) {
+	key := configCacheKey(assumeRoleARN, externalID, "")
 	if iamClient, ok := c.iamClients[key]; ok {
 		return iamClient, nil
 	}
-	awsCfg, err := c.GetAWSConfig(assumeRole, externalID)
+	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -396,13 +425,19 @@ func (c *ConfiguratorConfig) GetIAMClient(assumeRole, externalID string) (iamCli
 	return iamClient, nil
 }
 
-func (c *ConfiguratorConfig) GetSSMClient(assumeRole, externalID, region string) (ssmClient, error) {
-	key := configCacheKey(assumeRole, externalID, region)
+func (c *ConfiguratorConfig) getCurrentIAMClient() (iamClient, error) {
+	return c.getIAMClient(c.Flags.AssumeRoleARN, c.Flags.ExternalID)
+}
+
+// getSSMClient gets the cached AWS SSM client for the specified assume role ARN,
+// external ID, and region. assumeRoleARN and externalID may be empty.
+func (c *ConfiguratorConfig) getSSMClient(region, assumeRoleARN, externalID string) (ssmClient, error) {
+	key := configCacheKey(assumeRoleARN, externalID, region)
 	if ssmClient, ok := c.ssmClients[key]; ok {
 		return ssmClient, nil
 	}
 
-	awsCfg, err := c.GetAWSConfig(assumeRole, externalID)
+	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -471,9 +506,6 @@ func (c *ConfiguratorConfig) CheckAndSetDefaults() error {
 	if c.awsConfigs == nil {
 		c.awsConfigs = make(map[string]aws.Config)
 	}
-	if c.identities == nil {
-		c.identities = make(map[string]awslib.Identity)
-	}
 	if c.ssmClients == nil {
 		c.ssmClients = make(map[string]ssmClient)
 	}
@@ -486,6 +518,9 @@ func (c *ConfiguratorConfig) CheckAndSetDefaults() error {
 	return nil
 }
 
+// getDistinctAssumedRoles gets a list of the distinct roles that can be assumed
+// from the AWS matchers. If there are no AWS matchers, one empty AssumeRole
+// is returned.
 func (c *ConfiguratorConfig) getDistinctAssumedRoles() []types.AssumeRole {
 	matchers := awsMatchersFromConfig(c.Flags, c.ServiceConfig)
 	if len(matchers) == 0 {
@@ -521,11 +556,7 @@ func NewAWSConfigurator(config ConfiguratorConfig) (configurators.Configurator, 
 	assumedRoles := config.getDistinctAssumedRoles()
 	targetAccounts := make([]string, 0, len(assumedRoles))
 	for _, ar := range assumedRoles {
-		if config.Flags.Manual && ar.RoleARN == "" {
-			targetAccounts = append(targetAccounts, targetIdentityARNSectionPlaceholder)
-			continue
-		}
-		identity, err := config.GetIdentity(ar.RoleARN, ar.ExternalID)
+		identity, err := config.getIdentity(ar.RoleARN, ar.ExternalID)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -568,7 +599,7 @@ type awsPolicyCreator struct {
 	policy *awslib.Policy
 	// formattedPolicy human-readable representation of the policy document.
 	formattedPolicy string
-
+	// accountID is the account that the policy will be created in.
 	accountID string
 }
 
@@ -674,7 +705,7 @@ func buildCommonActions(config ConfiguratorConfig, targetCfg targetConfig) ([]co
 		return nil, trace.Wrap(err)
 	}
 	var actions []configurators.ConfiguratorAction
-	policies, err := config.GetPolicies(targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
+	policies, err := config.getPolicies(targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -694,28 +725,10 @@ func buildCommonActions(config ConfiguratorConfig, targetCfg targetConfig) ([]co
 
 // buildActions generates the policy documents and configurator actions.
 func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction, error) {
-	// Identity is going to be empty (`nil`) when running the command on
-	// `Manual` mode, place a wildcard to keep the generated policies valid.
-	var currentIdentity awslib.Identity
-	var currentIAMClient iamClient
-	if !config.Flags.Manual {
-		var err error
-		roleARN := config.Flags.AssumeRoleARN
-		externalID := config.Flags.ExternalID
-		currentIdentity, err = config.GetIdentity(roleARN, externalID)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		currentIAMClient, err = config.GetIAMClient(roleARN, externalID)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-	}
-
 	assumedRoles := config.getDistinctAssumedRoles()
 	var allActions []configurators.ConfiguratorAction
 	for _, ar := range assumedRoles {
-		target, err := policiesTarget(config, ar, currentIdentity, currentIAMClient)
+		target, err := policiesTarget(config, ar)
 		if err != nil {
 			var unreachableErr unreachablePolicyTargetError
 			if errors.As(err, &unreachableErr) {
@@ -743,6 +756,9 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 	return allActions, nil
 }
 
+// unreachablePolicyTargetError indicates that a target identity could not be
+// accessed from an assumed role (typically due to them being in different
+// accounts).
 type unreachablePolicyTargetError struct {
 	target      awslib.Identity
 	assumedRole awslib.Identity
@@ -760,35 +776,30 @@ func (e unreachablePolicyTargetError) Error() string {
 func policiesTarget(
 	config ConfiguratorConfig,
 	targetAssumeRole types.AssumeRole,
-	currentIdentity awslib.Identity,
-	currentIAMClient iamClient,
 ) (awslib.Identity, error) {
-	if currentIdentity == nil {
-		var err error
-		currentIdentity, err = awslib.IdentityFromArn(buildIAMARN(targetIdentityARNSectionPlaceholder, targetIdentityARNSectionPlaceholder, "user", defaultAttachUser))
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
+	currentIdentity, err := config.getCurrentIdentity()
+	if err != nil {
+		return nil, trace.Wrap(err)
 	}
-
-	partitionID := currentIdentity.GetPartition()
-	accountID := currentIdentity.GetAccountID()
+	defaultPartitionID := currentIdentity.GetPartition()
+	defaultAccountID := currentIdentity.GetAccountID()
 	var assumeRoleIdentity awslib.Identity
 	if targetAssumeRole.RoleARN != "" {
 		var err error
-		assumeRoleIdentity, err = config.GetIdentity(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
+		assumeRoleIdentity, err = config.getIdentity(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		partitionID = assumeRoleIdentity.GetPartition()
-		accountID = assumeRoleIdentity.GetAccountID()
+		defaultPartitionID = assumeRoleIdentity.GetPartition()
+		defaultAccountID = assumeRoleIdentity.GetAccountID()
 	}
 
+	// Attach to user if provided.
 	attachToUser := config.Flags.AttachToUser
 	if attachToUser != "" {
 		userArn := attachToUser
 		if !arn.IsARN(attachToUser) {
-			userArn = buildIAMARN(partitionID, accountID, "user", attachToUser)
+			userArn = buildIAMARN(defaultPartitionID, defaultAccountID, "user", attachToUser)
 		}
 		userIdentity, err := awslib.IdentityFromArn(userArn)
 		if err != nil {
@@ -800,11 +811,12 @@ func policiesTarget(
 		return userIdentity, nil
 	}
 
+	// Attach to role if provided.
 	attachToRole := config.Flags.AttachToRole
 	if attachToRole != "" {
 		roleArn := attachToRole
 		if !arn.IsARN(attachToRole) {
-			roleArn = buildIAMARN(partitionID, accountID, "role", attachToRole)
+			roleArn = buildIAMARN(defaultPartitionID, defaultAccountID, "role", attachToRole)
 		}
 		roleIdentity, err := awslib.IdentityFromArn(roleArn)
 		if err != nil {
@@ -816,8 +828,9 @@ func policiesTarget(
 		return roleIdentity, nil
 	}
 
+	// Attach to assumed role if provided.
 	if assumeRoleIdentity != nil {
-		assumeRoleIAMClient, err := config.GetIAMClient(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
+		assumeRoleIAMClient, err := config.getIAMClient(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -825,7 +838,12 @@ func policiesTarget(
 		return fullAssumeRoleIdentity, trace.Wrap(err)
 	}
 
+	// Attach to current identity.
 	if currentIdentity.GetType() == awslib.ResourceTypeAssumedRole {
+		currentIAMClient, err := config.getCurrentIAMClient()
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
 		roleIdentity, err := getRoleARNForAssumedRole(currentIAMClient, currentIdentity)
 		if err != nil {
 			return nil, trace.Wrap(err)
@@ -1002,7 +1020,7 @@ func buildSSMDocumentCreators(config ConfiguratorConfig, targetCfg targetConfig,
 			continue
 		}
 		for _, region := range matcher.Regions {
-			ssmClient, err := config.GetSSMClient(targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID, region)
+			ssmClient, err := config.getSSMClient(region, targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
 			if err != nil {
 				return nil, trace.Wrap(err)
 			}
@@ -1336,7 +1354,8 @@ func (a *awsSSMDocumentCreator) Execute(ctx context.Context, actionCtx *configur
 // These are the resources that require AWS permissions for the identity to access.
 type targetConfig struct {
 	// identity is the target identity.
-	identity   awslib.Identity
+	identity awslib.Identity
+	// assumeRole is the role that should be assumed while configuring the target, if any.
 	assumeRole types.AssumeRole
 	// awsMatchers are the AWS matchers associated with the target identity.
 	awsMatchers []types.AWSMatcher
