@@ -603,13 +603,6 @@ To configure Teleport to protect access to Windows desktops:
        # Can be omitted if `locate_server` is enabled.
        # LDAPS port is 636 by default (example.com:636)
        addr: "$LDAP_SERVER_ADDRESS" 
-       # If you have more than one LDAP server, you can
-       # enable `locate_server` instead of addr to get
-       # LDAP servers from DNS SRV records of your domain.
-       locate_server: 
-         enabled: true
-         # Optional: specify a logical site to get LDAP servers from.
-         site: "$LDAP_SITE_NAME"
        domain: "$LDAP_DOMAIN_NAME"
        username: "$LDAP_USERNAME"
        sid: "$LDAP_USER_SID"
@@ -663,7 +656,7 @@ To configure Teleport to protect access to Windows desktops:
       enabled: true
       ldap:
          locate_server: 
-            enable: true
+            enabled: true
             site: "my-site" # optional
          domain: example.com
    ```
