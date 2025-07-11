@@ -2175,6 +2175,10 @@ func Test_getFallbackRegion(t *testing.T) {
 
 func TestGetDistinctAssumedRoles(t *testing.T) {
 	t.Parallel()
+	defaultAssumeRole := types.AssumeRole{
+		RoleARN:    "arn:aws:iam::123456789012:role/example-role",
+		ExternalID: "foobar",
+	}
 	tests := []struct {
 		name                string
 		assumeRoles         []*types.AssumeRole
@@ -2182,7 +2186,7 @@ func TestGetDistinctAssumedRoles(t *testing.T) {
 	}{
 		{
 			name:                "empty",
-			expectedAssumeRoles: []types.AssumeRole{{}},
+			expectedAssumeRoles: []types.AssumeRole{defaultAssumeRole},
 		},
 		{
 			name: "multiple",
@@ -2192,7 +2196,7 @@ func TestGetDistinctAssumedRoles(t *testing.T) {
 				{RoleARN: "87654321"},
 			},
 			expectedAssumeRoles: []types.AssumeRole{
-				{},
+				defaultAssumeRole,
 				{RoleARN: "12345678", ExternalID: "foo"},
 				{RoleARN: "87654321"},
 			},
@@ -2208,7 +2212,7 @@ func TestGetDistinctAssumedRoles(t *testing.T) {
 				nil,
 			},
 			expectedAssumeRoles: []types.AssumeRole{
-				{},
+				defaultAssumeRole,
 				{RoleARN: "12345678"},
 				{RoleARN: "87654321", ExternalID: "foo"},
 			},
@@ -2235,7 +2239,9 @@ func TestGetDistinctAssumedRoles(t *testing.T) {
 			}
 			config := ConfiguratorConfig{
 				Flags: configurators.BootstrapFlags{
-					Service: configurators.DiscoveryService,
+					Service:       configurators.DiscoveryService,
+					AssumeRoleARN: defaultAssumeRole.RoleARN,
+					ExternalID:    defaultAssumeRole.ExternalID,
 				},
 				ServiceConfig: &servicecfg.Config{
 					Discovery: servicecfg.DiscoveryConfig{

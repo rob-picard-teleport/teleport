@@ -506,18 +506,23 @@ func (c *ConfiguratorConfig) CheckAndSetDefaults() error {
 // from the AWS matchers. If there are no AWS matchers, one empty AssumeRole
 // is returned.
 func (c *ConfiguratorConfig) getDistinctAssumedRoles() []types.AssumeRole {
+	defaultAssumeRole := types.AssumeRole{
+		RoleARN:    c.Flags.AssumeRoleARN,
+		ExternalID: c.Flags.ExternalID,
+	}
 	matchers := awsMatchersFromConfig(c.Flags, c.ServiceConfig)
 	if len(matchers) == 0 {
-		return []types.AssumeRole{{}}
+		return []types.AssumeRole{defaultAssumeRole}
 	}
 
 	assumedRoles := make([]types.AssumeRole, 0, len(matchers))
 	for _, matcher := range matchers {
 		ar := matcher.AssumeRole
 		if ar == nil {
-			ar = &types.AssumeRole{}
+			assumedRoles = append(assumedRoles, defaultAssumeRole)
+		} else {
+			assumedRoles = append(assumedRoles, *ar)
 		}
-		assumedRoles = append(assumedRoles, *ar)
 	}
 	return apiutils.DeduplicateAny(assumedRoles, func(ar1, ar2 types.AssumeRole) bool {
 		return ar1.RoleARN == ar2.RoleARN && ar1.ExternalID == ar2.ExternalID
@@ -689,9 +694,12 @@ func buildCommonActions(config ConfiguratorConfig, targetCfg targetConfig) ([]co
 		return nil, trace.Wrap(err)
 	}
 	var actions []configurators.ConfiguratorAction
-	policies, err := config.getPolicies(targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
-	if err != nil {
-		return nil, trace.Wrap(err)
+	var policies awslib.Policies
+	if !config.Flags.Manual {
+		policies, err = config.getPolicies(targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
 	}
 
 	// Create IAM Policy.
@@ -709,10 +717,9 @@ func buildCommonActions(config ConfiguratorConfig, targetCfg targetConfig) ([]co
 
 // buildActions generates the policy documents and configurator actions.
 func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction, error) {
-	assumedRoles := config.getDistinctAssumedRoles()
 	var allActions []configurators.ConfiguratorAction
-	for _, ar := range assumedRoles {
-		target, err := policiesTarget(config, ar)
+	for _, assumeRole := range config.getDistinctAssumedRoles() {
+		target, err := policiesTarget(config, assumeRole)
 		if err != nil {
 			var unreachableErr unreachablePolicyTargetError
 			if errors.As(err, &unreachableErr) {
@@ -721,7 +728,7 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 			}
 			return nil, trace.Wrap(err)
 		}
-		targetCfg, err := getTargetConfig(config.Flags, config.ServiceConfig, target, ar)
+		targetCfg, err := getTargetConfig(config.Flags, config.ServiceConfig, target, assumeRole)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -981,9 +988,13 @@ func buildSSMDocumentCreators(config ConfiguratorConfig, targetCfg targetConfig,
 			continue
 		}
 		for _, region := range matcher.Regions {
-			ssmClient, err := config.getSSMClient(region, targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
-			if err != nil {
-				return nil, trace.Wrap(err)
+			var ssmClient ssmClient
+			if !config.Flags.Manual {
+				var err error
+				ssmClient, err = config.getSSMClient(region, targetCfg.assumeRole.RoleARN, targetCfg.assumeRole.ExternalID)
+				if err != nil {
+					return nil, trace.Wrap(err)
+				}
 			}
 			ssmCreator := awsSSMDocumentCreator{
 				ssm:       ssmClient,
@@ -1291,6 +1302,9 @@ func (a *awsSSMDocumentCreator) Details() string {
 
 // Execute upserts the policy and store its ARN in the action context.
 func (a *awsSSMDocumentCreator) Execute(ctx context.Context, actionCtx *configurators.ConfiguratorActionContext) error {
+	if a.ssm == nil {
+		return trace.BadParameter("ssm client not initialized")
+	}
 	_, err := a.ssm.CreateDocument(ctx, &ssm.CreateDocumentInput{
 		Content:        aws.String(a.Contents),
 		Name:           aws.String(a.Name),
@@ -1329,7 +1343,7 @@ type targetConfig struct {
 
 // getTargetConfig gets the resources that are relevant to the target identity
 // from cli flags and file configuration.
-func getTargetConfig(flags configurators.BootstrapFlags, cfg *servicecfg.Config, target awslib.Identity, ar types.AssumeRole) (targetConfig, error) {
+func getTargetConfig(flags configurators.BootstrapFlags, cfg *servicecfg.Config, target awslib.Identity, assumeRole types.AssumeRole) (targetConfig, error) {
 	forcedRoles, err := parseForcedAWSRoles(flags, target)
 	if err != nil {
 		return targetConfig{}, trace.Wrap(err)
@@ -1345,7 +1359,7 @@ func getTargetConfig(flags configurators.BootstrapFlags, cfg *servicecfg.Config,
 	}
 	return targetConfig{
 		identity:        target,
-		assumeRole:      ar,
+		assumeRole:      assumeRole,
 		awsMatchers:     matchersForTarget(awsMatchers, target, targetIsAssumeRole),
 		databases:       databasesForTarget(databases, target, targetIsAssumeRole),
 		assumesAWSRoles: targetAssumesRoles,
