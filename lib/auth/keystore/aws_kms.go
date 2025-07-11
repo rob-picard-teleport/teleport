@@ -572,22 +572,26 @@ func (a *awsKMSKeystore) forEachOwnedKey(ctx context.Context, fn func(ctx contex
 	errGroup, ctx := errgroup.WithContext(ctx)
 	paginationToken := ""
 	more := true
+
+	var tagFilters []resourcegroupstaggingapitypes.TagFilter
+	for k, v := range a.tags {
+		tagFilters = append(tagFilters, resourcegroupstaggingapitypes.TagFilter{
+			Key: aws.String(k),
+			Values: []string{
+				v,
+			},
+		})
+	}
+
 	for more {
 		var paginationTokenInput *string
 		if paginationToken != "" {
 			paginationTokenInput = aws.String(paginationToken)
 		}
-		output, err := a.rgt.GetResources(ctx, &resourcegroupstaggingapi.GetResourcesInput{
+		var output, err = a.rgt.GetResources(ctx, &resourcegroupstaggingapi.GetResourcesInput{
 			ResourceTypeFilters: []string{"kms:key"},
-			TagFilters: []resourcegroupstaggingapitypes.TagFilter{
-				{
-					Key: aws.String(clusterTagKey),
-					Values: []string{
-						a.tags[clusterTagKey],
-					},
-				},
-			},
-			PaginationToken: paginationTokenInput,
+			TagFilters:          tagFilters,
+			PaginationToken:     paginationTokenInput,
 		})
 		if err != nil {
 			return trace.Wrap(err, "failed to list AWS KMS keys")
