@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	resourcegroupstaggingapitypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/tracing/smithyoteltracing"
 	"github.com/gravitational/trace"
@@ -64,6 +67,7 @@ const (
 type awsKMSKeystore struct {
 	kms                kmsClient
 	mrk                mrkClient
+	rgt                rgtClient
 	awsAccount         string
 	awsRegion          string
 	multiRegionEnabled bool
@@ -75,10 +79,10 @@ type awsKMSKeystore struct {
 }
 
 func newAWSKMSKeystore(ctx context.Context, cfg *servicecfg.AWSKMSConfig, opts *Options) (*awsKMSKeystore, error) {
-	stsClient, kmsClient := opts.awsSTSClient, opts.awsKMSClient
+	stsClient, kmsClient, rgtClient := opts.awsSTSClient, opts.awsKMSClient, opts.awsRGTClient
 	mrkClient := opts.mrkClient
 
-	if stsClient == nil || kmsClient == nil {
+	if stsClient == nil || kmsClient == nil || rgtClient == nil {
 		useFIPSEndpoint := aws.FIPSEndpointStateUnset
 		if opts.FIPS {
 			useFIPSEndpoint = aws.FIPSEndpointStateEnabled
@@ -107,6 +111,12 @@ func newAWSKMSKeystore(ctx context.Context, cfg *servicecfg.AWSKMSConfig, opts *
 			if mrkClient == nil {
 				mrkClient = realKMS
 			}
+		}
+		if rgtClient == nil {
+			rgtClient = resourcegroupstaggingapi.NewFromConfig(awsCfg, func(o *resourcegroupstaggingapi.Options) {
+				o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+				o.Region = cfg.AWSRegion
+			})
 		}
 	}
 	id, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
@@ -148,6 +158,7 @@ func newAWSKMSKeystore(ctx context.Context, cfg *servicecfg.AWSKMSConfig, opts *
 		replicaRegions:     replicas,
 		kms:                kmsClient,
 		mrk:                mrkClient,
+		rgt:                rgtClient,
 		clock:              clock,
 		logger:             opts.Logger,
 	}, nil
@@ -427,7 +438,11 @@ func (a *awsKMSKeystore) deleteUnusedKeys(ctx context.Context, activeKeys [][]by
 
 	var keysToDelete []string
 	var mu sync.RWMutex
-	err := a.forEachKey(ctx, func(ctx context.Context, arn string) error {
+	keyListFn := a.forEachKey
+	if os.Getenv("TELEPORT_UNSTABLE_SCOPED_KMS_KEY_DELETION") == "yes" {
+		keyListFn = a.forEachOwnedKey
+	}
+	err := keyListFn(ctx, func(ctx context.Context, arn string) error {
 		key, err := keyIDFromArn(arn)
 		if err != nil {
 			return trace.Wrap(err)
@@ -548,6 +563,45 @@ func (a *awsKMSKeystore) forEachKey(ctx context.Context, fn func(ctx context.Con
 			})
 		}
 	}
+	return trace.Wrap(errGroup.Wait())
+}
+
+// forEachOwnedKey calls fn with the AWS key ID of all owned keys in the AWS account and
+// region that would be returned by GetResources. It may call fn concurrently.
+func (a *awsKMSKeystore) forEachOwnedKey(ctx context.Context, fn func(ctx context.Context, keyARN string) error) error {
+	errGroup, ctx := errgroup.WithContext(ctx)
+	paginationToken := ""
+	more := true
+	for more {
+		var paginationTokenInput *string
+		if paginationToken != "" {
+			paginationTokenInput = aws.String(paginationToken)
+		}
+		output, err := a.rgt.GetResources(ctx, &resourcegroupstaggingapi.GetResourcesInput{
+			ResourceTypeFilters: []string{"kms:key"},
+			TagFilters: []resourcegroupstaggingapitypes.TagFilter{
+				{
+					Key: aws.String(clusterTagKey),
+					Values: []string{
+						a.tags[clusterTagKey],
+					},
+				},
+			},
+			PaginationToken: paginationTokenInput,
+		})
+		if err != nil {
+			return trace.Wrap(err, "failed to list AWS KMS keys")
+		}
+		paginationToken = aws.ToString(output.PaginationToken)
+		more = paginationToken != ""
+		for _, keyEntry := range output.ResourceTagMappingList {
+			keyID := aws.ToString(keyEntry.ResourceARN)
+			errGroup.Go(func() error {
+				return trace.Wrap(fn(ctx, keyID))
+			})
+		}
+	}
+
 	return trace.Wrap(errGroup.Wait())
 }
 
@@ -759,4 +813,8 @@ type mrkClient interface {
 
 type stsClient interface {
 	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
+}
+
+type rgtClient interface {
+	GetResources(context.Context, *resourcegroupstaggingapi.GetResourcesInput, ...func(*resourcegroupstaggingapi.Options)) (*resourcegroupstaggingapi.GetResourcesOutput, error)
 }
