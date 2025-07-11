@@ -3118,6 +3118,55 @@ func TestGetAndList_ApplicationServers(t *testing.T) {
 	require.Empty(t, resp.Resources)
 }
 
+func TestListSAMLIdPServiceProviderWithCache(t *testing.T) {
+	// Set license to enterprise in order to be able to list SAML IdP service providers.
+	modules.SetTestModules(t, &modules.TestModules{
+		TestBuildType: modules.BuildEnterprise,
+	})
+	ctx := context.Background()
+	srv := newTestTLSServer(t, withCacheEnabled(true))
+
+	sp, err := types.NewSAMLIdPServiceProvider(types.Metadata{
+		Name: "saml-app",
+	}, types.SAMLIdPServiceProviderSpecV1{
+		ACSURL:   "https://example.com/acs",
+		EntityID: "https://example.com/entity-id",
+	})
+	require.NoError(t, err)
+	err = srv.Auth().CreateSAMLIdPServiceProvider(ctx, sp)
+	require.NoError(t, err)
+
+	var sps []types.SAMLIdPServiceProvider
+	inlineEventually(t, func() bool {
+		var err error
+		sps, _, err = srv.Auth().ListSAMLIdPServiceProviders(ctx, 0, "")
+		require.NoError(t, err)
+		return len(sps) == 1
+	}, 5*time.Second, 200*time.Millisecond, "SAMLIdPServiceProviders from auth")
+
+	user, role, err := CreateUserAndRole(srv.Auth(), "user", nil, []types.Rule{
+		types.NewRule(types.KindSAMLIdPServiceProvider, services.RO()),
+	})
+	require.NoError(t, err)
+	clt, err := srv.NewClient(TestUser(user.GetName()))
+	require.NoError(t, err)
+
+	role.SetAppLabels(types.Allow, types.Labels{types.Wildcard: {types.Wildcard}})
+	_, err = srv.Auth().UpsertRole(ctx, role)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		sps_cache, err := clt.ListResources(ctx, proto.ListResourcesRequest{
+			Namespace:    apidefaults.Namespace,
+			Limit:        int32(len(sps)),
+			ResourceType: types.KindSAMLIdPServiceProvider,
+		})
+		require.NoError(t, err)
+		require.Equal(t, sps_cache.Resources[0].GetName(), sp.GetName())
+		return len(sps_cache.Resources) == len(sps)
+	}, 5*time.Second, 200*time.Millisecond, "SAMLIdPServiceProviders from cache")
+}
+
 // TestListSAMLIdPServiceProviderAndListResources verifies
 // RBAC and search filters when fetching SAML IdP service providers.
 func TestListSAMLIdPServiceProviderAndListResources(t *testing.T) {
@@ -4567,12 +4616,12 @@ func TestListResources_KindUserGroup(t *testing.T) {
 	}
 
 	// Add user groups.
-	testUg1 := createUserGroup(t, s, "c", map[string]string{"label": "value"})
-	testUg2 := createUserGroup(t, s, "a", map[string]string{"label": "value"})
-	testUg3 := createUserGroup(t, s, "b", map[string]string{"label": "value"})
+	testUg1 := createUserGroup(t, s.authServer, "c", map[string]string{"label": "value"})
+	testUg2 := createUserGroup(t, s.authServer, "a", map[string]string{"label": "value"})
+	testUg3 := createUserGroup(t, s.authServer, "b", map[string]string{"label": "value"})
 
 	// This user group should never should up because the user doesn't have group label access to it.
-	_ = createUserGroup(t, s, "d", map[string]string{"inaccessible": "value"})
+	_ = createUserGroup(t, s.authServer, "d", map[string]string{"inaccessible": "value"})
 
 	authContext, err = srv.Authorizer.Authorize(authz.ContextWithUser(ctx, TestUser(user.GetName()).I))
 	require.NoError(t, err)
@@ -4657,13 +4706,15 @@ func TestListResources_KindUserGroup(t *testing.T) {
 	})
 }
 
-func createUserGroup(t *testing.T, s *ServerWithRoles, name string, labels map[string]string) types.UserGroup {
+func createUserGroup(t *testing.T, s *Server, name string, labels map[string]string) types.UserGroup {
+	t.Helper()
+	ctx := t.Context()
 	userGroup, err := types.NewUserGroup(types.Metadata{
 		Name:   name,
 		Labels: labels,
 	}, types.UserGroupSpecV1{})
 	require.NoError(t, err)
-	err = s.CreateUserGroup(context.Background(), userGroup)
+	err = s.CreateUserGroup(ctx, userGroup)
 	require.NoError(t, err)
 	return userGroup
 }
@@ -5390,12 +5441,23 @@ func TestCreateAccessRequestV2_oktaReadOnly(t *testing.T) {
 	ctx := context.Background()
 	srv := newTestTLSServer(t)
 
-	// 1. Create Okta-originated app server in the backend.
+	// 1. Create Okta-originated app_server and user_group in the backend.
 
-	searchableOktaApp := newTestAppServerV3(t, srv.Auth(), "serachable-okta-app", map[string]string{
-		"name":            "serachable-okta-app",
-		types.OriginLabel: types.OriginOkta,
-	})
+	searchableOktaApp := createTestAppServerV3(t, srv.Auth(),
+		"serachable-okta-app",
+		map[string]string{
+			"name":            "serachable-okta-app",
+			types.OriginLabel: types.OriginOkta,
+		},
+	)
+
+	searchableUserGroup := createUserGroup(t, srv.Auth(),
+		"serachable-okta-group",
+		map[string]string{
+			"name":            "serachable-okta-group",
+			types.OriginLabel: types.OriginOkta,
+		},
+	)
 
 	// 2. Create a role allowing the Okta app (used for search_as_roles)
 
@@ -5403,6 +5465,9 @@ func TestCreateAccessRequestV2_oktaReadOnly(t *testing.T) {
 		Allow: types.RoleConditions{
 			AppLabels: types.Labels{
 				"name": {searchableOktaApp.GetName()},
+			},
+			GroupLabels: types.Labels{
+				"name": {searchableUserGroup.GetName()},
 			},
 		},
 	})
@@ -5448,6 +5513,13 @@ func TestCreateAccessRequestV2_oktaReadOnly(t *testing.T) {
 				mustResourceID(srv.ClusterName(), types.KindAppServer, searchableOktaApp.GetName()),
 			},
 		),
+		// requesting user_group
+		mustAccessRequest(t, alice.GetName(), types.RequestState_PENDING, srv.Clock().Now(), srv.Clock().Now().Add(time.Hour),
+			[]string{}, // roles
+			[]types.ResourceID{
+				mustResourceID(srv.ClusterName(), types.KindUserGroup, searchableUserGroup.GetName()),
+			},
+		),
 	}
 
 	// 7. Run tests
@@ -5458,10 +5530,11 @@ func TestCreateAccessRequestV2_oktaReadOnly(t *testing.T) {
 		// heartbeats for the Okta apps haven't expired yet. This is an edge-case so the
 		// error is a bit confusing.
 		for _, accessRequest := range testAccessRequests {
+			msg := fmt.Sprintf("requested resources = %v", accessRequest.GetRequestedResourceIDs())
 			_, err := aliceClt.CreateAccessRequestV2(ctx, accessRequest)
-			require.Error(t, err)
-			require.True(t, trace.IsBadParameter(err))
-			require.ErrorContains(t, err, okta.OktaResourceNotRequestableError.Error())
+			require.Error(t, err, msg)
+			require.True(t, trace.IsBadParameter(err), msg)
+			require.ErrorContains(t, err, okta.OktaResourceNotRequestableError.Error(), msg)
 		}
 	})
 
@@ -5479,8 +5552,9 @@ func TestCreateAccessRequestV2_oktaReadOnly(t *testing.T) {
 		)
 
 		for _, accessRequest := range testAccessRequests {
+			msg := fmt.Sprintf("requested resources = %v", accessRequest.GetRequestedResourceIDs())
 			_, err := aliceClt.CreateAccessRequestV2(ctx, accessRequest)
-			require.NoError(t, err)
+			require.NoError(t, err, msg)
 		}
 	})
 
@@ -5498,10 +5572,11 @@ func TestCreateAccessRequestV2_oktaReadOnly(t *testing.T) {
 		)
 
 		for _, accessRequest := range testAccessRequests {
+			msg := fmt.Sprintf("requested resources = %v", accessRequest.GetRequestedResourceIDs())
 			_, err := aliceClt.CreateAccessRequestV2(ctx, accessRequest)
-			require.Error(t, err)
-			require.True(t, trace.IsBadParameter(err))
-			require.ErrorContains(t, err, okta.OktaResourceNotRequestableError.Error())
+			require.Error(t, err, msg)
+			require.True(t, trace.IsBadParameter(err), msg)
+			require.ErrorContains(t, err, okta.OktaResourceNotRequestableError.Error(), msg)
 		}
 	})
 }
@@ -5513,14 +5588,14 @@ func TestListUnifiedResources_search_as_roles_oktaReadOnly(t *testing.T) {
 
 	// 1. Create app resources
 
-	searchableGenericApp := newTestAppServerV3(t, srv.Auth(),
+	searchableGenericApp := createTestAppServerV3(t, srv.Auth(),
 		"test_generic_app",
 		map[string]string{
 			"find_me": "please",
 		},
 	)
 
-	searchableOktaApp := newTestAppServerV3(t, srv.Auth(),
+	searchableOktaApp := createTestAppServerV3(t, srv.Auth(),
 		"test_searchable_okta_app",
 		map[string]string{
 			"find_me":         "please",
@@ -5528,7 +5603,7 @@ func TestListUnifiedResources_search_as_roles_oktaReadOnly(t *testing.T) {
 		},
 	)
 
-	assignedOktaApp := newTestAppServerV3(t, srv.Auth(),
+	assignedOktaApp := createTestAppServerV3(t, srv.Auth(),
 		"test_assigned_okta_app",
 		map[string]string{
 			"owner":           "alice",
@@ -6171,8 +6246,17 @@ func TestUnifiedResources_IdentityCenter(t *testing.T) {
 		require.NoError(t, err)
 		defer clt.Close()
 
-		resp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
+		unifiedResp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
 			Kinds: []string{types.KindApp},
+			Labels: map[string]string{
+				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
+			},
+		})
+		require.NoError(t, err)
+		require.Empty(t, unifiedResp.Resources)
+
+		resp, err := clt.ListResources(ctx, proto.ListResourcesRequest{
+			ResourceType: types.KindIdentityCenterAccount,
 			Labels: map[string]string{
 				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
 			},
@@ -6192,8 +6276,17 @@ func TestUnifiedResources_IdentityCenter(t *testing.T) {
 		require.NoError(t, err)
 		defer clt.Close()
 
-		resp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
+		unifiedResp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
 			Kinds: []string{types.KindApp},
+			Labels: map[string]string{
+				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
+			},
+		})
+		require.NoError(t, err)
+		require.Empty(t, unifiedResp.Resources)
+
+		resp, err := clt.ListResources(ctx, proto.ListResourcesRequest{
+			ResourceType: types.KindIdentityCenterAccount,
 			Labels: map[string]string{
 				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
 			},
@@ -6214,8 +6307,17 @@ func TestUnifiedResources_IdentityCenter(t *testing.T) {
 		require.NoError(t, err)
 		defer clt.Close()
 
-		resp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
+		unifiedResp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
 			Kinds: []string{types.KindApp},
+			Labels: map[string]string{
+				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
+			},
+		})
+		require.NoError(t, err)
+		require.Empty(t, unifiedResp.Resources)
+
+		resp, err := clt.ListResources(ctx, proto.ListResourcesRequest{
+			ResourceType: types.KindIdentityCenterAccount,
 			Labels: map[string]string{
 				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
 			},
@@ -6235,8 +6337,17 @@ func TestUnifiedResources_IdentityCenter(t *testing.T) {
 		require.NoError(t, err)
 		defer clt.Close()
 
-		resp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
+		unifiedResp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
 			Kinds: []string{types.KindApp},
+			Labels: map[string]string{
+				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, unifiedResp.Resources, 1)
+
+		resp, err := clt.ListResources(ctx, proto.ListResourcesRequest{
+			ResourceType: types.KindIdentityCenterAccount,
 			Labels: map[string]string{
 				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
 			},
@@ -6256,8 +6367,17 @@ func TestUnifiedResources_IdentityCenter(t *testing.T) {
 		require.NoError(t, err)
 		defer clt.Close()
 
-		resp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
+		unifiedResp, err := clt.ListUnifiedResources(ctx, &proto.ListUnifiedResourcesRequest{
 			Kinds: []string{types.KindApp},
+		})
+		require.NoError(t, err)
+		require.Len(t, unifiedResp.Resources, 1)
+
+		resp, err := clt.ListResources(ctx, proto.ListResourcesRequest{
+			ResourceType: types.KindIdentityCenterAccount,
+			Labels: map[string]string{
+				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
+			},
 		})
 		require.NoError(t, err)
 		require.Len(t, resp.Resources, 1)
@@ -6284,18 +6404,29 @@ func TestUnifiedResources_IdentityCenter(t *testing.T) {
 		})
 		require.True(t, trace.IsAccessDenied(err),
 			"Expected Access Denied, got %v", err)
+
+		_, err = clt.ListResources(ctx, proto.ListResourcesRequest{
+			ResourceType: types.KindIdentityCenterAccount,
+			Labels: map[string]string{
+				types.OriginLabel: apicommon.OriginAWSIdentityCenter,
+			},
+		})
+
+		require.True(t, trace.IsAccessDenied(err),
+			"Expected Access Denied, got %v", err)
 	})
 }
 
 func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 	const nodeCount = 150_000
 	const roleCount = 32
+	const dbCount = 150_000
 
 	ctx := context.Background()
 	srv := newTestTLSServer(b)
 
 	var ids []string
-	for i := 0; i < roleCount; i++ {
+	for range roleCount {
 		ids = append(ids, uuid.New().String())
 	}
 
@@ -6303,7 +6434,7 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 
 	var hiddenNodes int
 	// Create test nodes.
-	for i := 0; i < nodeCount; i++ {
+	for i := range nodeCount {
 		name := uuid.New().String()
 		id := ids[i%len(ids)]
 		if id == "hidden" {
@@ -6335,16 +6466,64 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 		require.NoError(b, err)
 	}
 
+	// Create test HA databases (multiple agents per database)
+	var hiddenDBs int
+	for i := range dbCount {
+		id := ids[i%len(ids)]
+		if id == "hidden" {
+			hiddenDBs++
+		}
+		name := "db-" + strconv.Itoa(i)
+		labels := map[string]string{
+			"kEy":   id,
+			"grouP": "useRs",
+		}
+		if i == 10 {
+			labels["ip"] = "10.20.30.40"
+			labels["ADDRESS"] = "10.20.30.41"
+			labels["food"] = "POTATO"
+		}
+
+		db, err := types.NewDatabaseV3(types.Metadata{
+			Name:   name,
+			Labels: labels,
+		}, types.DatabaseSpecV3{
+			Protocol: "test-protocol",
+			URI:      "test-uri:1234",
+		})
+		require.NoError(b, err)
+
+		statuses := []string{"healthy", "unknown", "healthy"}
+		if i == 10 {
+			statuses = []string{"unhealthy", "unhealthy", "unhealthy"}
+		}
+		for _, healthStatus := range statuses {
+			dbServer, err := types.NewDatabaseServerV3(types.Metadata{
+				Name: db.GetName(),
+			}, types.DatabaseServerSpecV3{
+				Database: db.Copy(),
+				Hostname: name,
+				HostID:   uuid.New().String(),
+			})
+			require.NoError(b, err)
+			dbServer.SetTargetHealth(types.TargetHealth{Status: healthStatus})
+			_, err = srv.Auth().UpsertDatabaseServer(ctx, dbServer)
+			require.NoError(b, err)
+		}
+	}
+
 	b.Run("labels", func(b *testing.B) {
 		benchmarkListUnifiedResources(
 			b, ctx,
-			1,
+			2,
 			srv,
 			ids,
 			func(role types.Role, id string) {
 				role.SetNodeLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+				role.SetDatabaseLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
 			},
 			func(req *proto.ListUnifiedResourcesRequest) {
+				req.Kinds = []string{types.KindNode, types.KindDatabase}
 				req.Labels = map[string]string{"ip": "10.20.30.40"}
 			},
 		)
@@ -6352,13 +6531,15 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 	b.Run("predicate path", func(b *testing.B) {
 		benchmarkListUnifiedResources(
 			b, ctx,
-			1,
+			2,
 			srv,
 			ids,
 			func(role types.Role, id string) {
 				role.SetNodeLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+				role.SetDatabaseLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
 			},
 			func(req *proto.ListUnifiedResourcesRequest) {
+				req.Kinds = []string{types.KindNode, types.KindDatabase}
 				req.PredicateExpression = `labels.ip == "10.20.30.40"`
 			},
 		)
@@ -6366,18 +6547,20 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 	b.Run("predicate index", func(b *testing.B) {
 		benchmarkListUnifiedResources(
 			b, ctx,
-			1,
+			2,
 			srv,
 			ids,
 			func(role types.Role, id string) {
 				role.SetNodeLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+				role.SetDatabaseLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
 			},
 			func(req *proto.ListUnifiedResourcesRequest) {
+				req.Kinds = []string{types.KindNode, types.KindDatabase}
 				req.PredicateExpression = `labels["ip"] == "10.20.30.40"`
 			},
 		)
 	})
-	b.Run("search lower", func(b *testing.B) {
+	b.Run("predicate health status", func(b *testing.B) {
 		benchmarkListUnifiedResources(
 			b, ctx,
 			1,
@@ -6385,8 +6568,26 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 			ids,
 			func(role types.Role, id string) {
 				role.SetNodeLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+				role.SetDatabaseLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
 			},
 			func(req *proto.ListUnifiedResourcesRequest) {
+				req.Kinds = []string{types.KindNode, types.KindDatabase}
+				req.PredicateExpression = `health.status == "unhealthy"`
+			},
+		)
+	})
+	b.Run("search lower", func(b *testing.B) {
+		benchmarkListUnifiedResources(
+			b, ctx,
+			2,
+			srv,
+			ids,
+			func(role types.Role, id string) {
+				role.SetNodeLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+				role.SetDatabaseLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+			},
+			func(req *proto.ListUnifiedResourcesRequest) {
+				req.Kinds = []string{types.KindNode, types.KindDatabase}
 				req.SearchKeywords = []string{"10.20.30.40"}
 			},
 		)
@@ -6394,13 +6595,15 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 	b.Run("search upper", func(b *testing.B) {
 		benchmarkListUnifiedResources(
 			b, ctx,
-			1,
+			2,
 			srv,
 			ids,
 			func(role types.Role, id string) {
 				role.SetNodeLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
+				role.SetDatabaseLabels(types.Allow, types.Labels{types.Wildcard: []string{types.Wildcard}})
 			},
 			func(req *proto.ListUnifiedResourcesRequest) {
+				req.Kinds = []string{types.KindNode, types.KindDatabase}
 				req.SearchKeywords = []string{"POTATO"}
 			},
 		)
@@ -6419,12 +6622,13 @@ func BenchmarkListUnifiedResourcesFilter(b *testing.B) {
 func BenchmarkListUnifiedResources(b *testing.B) {
 	const nodeCount = 150_000
 	const roleCount = 32
+	const dbCount = 150_000
 
 	ctx := context.Background()
 	srv := newTestTLSServer(b)
 
 	var ids []string
-	for i := 0; i < roleCount; i++ {
+	for range roleCount {
 		ids = append(ids, uuid.New().String())
 	}
 
@@ -6432,7 +6636,7 @@ func BenchmarkListUnifiedResources(b *testing.B) {
 
 	var hiddenNodes int
 	// Create test nodes.
-	for i := 0; i < nodeCount; i++ {
+	for i := range nodeCount {
 		name := uuid.New().String()
 		id := ids[i%len(ids)]
 		if id == "hidden" {
@@ -6455,6 +6659,40 @@ func BenchmarkListUnifiedResources(b *testing.B) {
 		require.NoError(b, err)
 	}
 
+	// Create test HA databases (multiple agents per database)
+	var hiddenDBs int
+	for i := range dbCount {
+		id := ids[i%len(ids)]
+		if id == "hidden" {
+			hiddenDBs++
+		}
+		name := "db-" + strconv.Itoa(i)
+		db, err := types.NewDatabaseV3(types.Metadata{
+			Name: name,
+			Labels: map[string]string{
+				"key":   id,
+				"group": "users",
+			},
+		}, types.DatabaseSpecV3{
+			Protocol: "test-protocol",
+			URI:      "test-uri:1234",
+		})
+		require.NoError(b, err)
+		for _, healthStatus := range []string{"healthy", "unhealthy", "unknown"} {
+			dbServer, err := types.NewDatabaseServerV3(types.Metadata{
+				Name: db.GetName(),
+			}, types.DatabaseServerSpecV3{
+				Database: db.Copy(),
+				Hostname: name,
+				HostID:   uuid.New().String(),
+			})
+			require.NoError(b, err)
+			dbServer.SetTargetHealth(types.TargetHealth{Status: healthStatus})
+			_, err = srv.Auth().UpsertDatabaseServer(ctx, dbServer)
+			require.NoError(b, err)
+		}
+	}
+
 	for _, tc := range []struct {
 		desc     string
 		editRole func(types.Role, string)
@@ -6464,8 +6702,10 @@ func BenchmarkListUnifiedResources(b *testing.B) {
 			editRole: func(r types.Role, id string) {
 				if id == "hidden" {
 					r.SetNodeLabels(types.Deny, types.Labels{"key": {id}})
+					r.SetDatabaseLabels(types.Deny, types.Labels{"key": {id}})
 				} else {
 					r.SetNodeLabels(types.Allow, types.Labels{"key": {id}})
+					r.SetDatabaseLabels(types.Allow, types.Labels{"key": {id}})
 				}
 			},
 		},
@@ -6473,11 +6713,13 @@ func BenchmarkListUnifiedResources(b *testing.B) {
 		b.Run(tc.desc, func(b *testing.B) {
 			benchmarkListUnifiedResources(
 				b, ctx,
-				nodeCount-hiddenNodes,
+				nodeCount-hiddenNodes+dbCount-hiddenDBs,
 				srv,
 				ids,
 				tc.editRole,
-				func(req *proto.ListUnifiedResourcesRequest) {},
+				func(req *proto.ListUnifiedResourcesRequest) {
+					req.Kinds = []string{types.KindNode, types.KindDatabase}
+				},
 			)
 		})
 	}
@@ -10194,9 +10436,9 @@ func TestValidateOracleJoinToken(t *testing.T) {
 	})
 }
 
-func newTestAppServerV3(t *testing.T, auth *Server, name string, labels map[string]string) *types.AppServerV3 {
+func createTestAppServerV3(t *testing.T, auth *Server, name string, labels map[string]string) *types.AppServerV3 {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	app, err := types.NewAppV3(
 		types.Metadata{

@@ -25,13 +25,14 @@ import { FieldSelectCreatable } from 'shared/components/FieldSelect';
 import { Option } from 'shared/components/Select';
 import { requiredAll, requiredField } from 'shared/components/Validation/rules';
 
+// eslint-disable-next-line no-restricted-imports -- FIXME
 import { AllUserTraits } from 'teleport/services/user';
 
 /**
  * traitsPreset is a list of system defined traits in Teleport.
  * The list is used to populate traits key option.
  */
-const traitsPreset = [
+export const traitsPreset = [
   'aws_role_arns',
   'azure_identities',
   'db_names',
@@ -45,7 +46,7 @@ const traitsPreset = [
   'logins',
   'windows_logins',
   'github_orgs',
-];
+] as const;
 
 /**
  * TraitsEditor supports add, edit or remove traits functionality.

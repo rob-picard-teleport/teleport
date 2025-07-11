@@ -372,6 +372,8 @@ func Run(options Options) (app *kingpin.Application, executedCommand string, con
 	discoveryBootstrapCmd.Flag("manual", "When executed in \"manual\" mode, it will print the instructions to complete the configuration instead of applying them directly.").BoolVar(&configureDiscoveryBootstrapFlags.config.Manual)
 	discoveryBootstrapCmd.Flag("database-service-role", "Role name to attach database access policies to. If specified, bootstrap for the database service that accesses the databases discovered by this discovery service.").StringVar(&configureDiscoveryBootstrapFlags.databaseServiceRole)
 	discoveryBootstrapCmd.Flag("database-service-policy-name", "Name of the policy for bootstrapping database service when database-service-role is provided. ").Default(awsconfigurators.DatabaseAccessPolicyName).StringVar(&configureDiscoveryBootstrapFlags.databaseServicePolicyName)
+	discoveryBootstrapCmd.Flag("assume-role-arn", "Optional AWS IAM role to assume while bootstrapping.").StringVar(&configureDiscoveryBootstrapFlags.config.AssumeRoleARN)
+	discoveryBootstrapCmd.Flag("external-id", "Optional AWS external ID used when assuming an AWS role.").StringVar(&configureDiscoveryBootstrapFlags.config.ExternalID)
 
 	// "teleport install" command and its subcommands
 	installCmd := app.Command("install", "Teleport install commands.")
@@ -522,6 +524,9 @@ func Run(options Options) (app *kingpin.Application, executedCommand string, con
 	integrationConfAccessGraphAWSSyncCmd.Flag("role", "The AWS Role used by the AWS OIDC Integration.").Required().StringVar(&ccf.IntegrationConfAccessGraphAWSSyncArguments.Role)
 	integrationConfAccessGraphAWSSyncCmd.Flag("aws-account-id", "The AWS account ID.").StringVar(&ccf.IntegrationConfAccessGraphAWSSyncArguments.AccountID)
 	integrationConfAccessGraphAWSSyncCmd.Flag("confirm", "Apply changes without confirmation prompt.").BoolVar(&ccf.IntegrationConfAccessGraphAWSSyncArguments.AutoConfirm)
+	integrationConfAccessGraphAWSSyncCmd.Flag("sqs-queue-url", "SQS Queue URL used to receive notifications from CloudTrail.").StringVar(&ccf.IntegrationConfAccessGraphAWSSyncArguments.SQSQueueURL)
+	integrationConfAccessGraphAWSSyncCmd.Flag("cloud-trail-bucket", "ARN of the S3 bucket where CloudTrail writes events to.").StringVar(&ccf.IntegrationConfAccessGraphAWSSyncArguments.CloudTrailBucketARN)
+	integrationConfAccessGraphAWSSyncCmd.Flag("kms-key", "List of KMS Keys used to decrypt SQS and S3 bucket data.").StringsVar(&ccf.IntegrationConfAccessGraphAWSSyncArguments.KMSKeyARNs)
 
 	integrationConfAccessGraphAzureSyncCmd := integrationConfAccessGraphCmd.Command("azure", "Adds required Azure permissions for syncing Azure resources into Access Graph service.")
 	integrationConfAccessGraphAzureSyncCmd.Flag("managed-identity", "The ID of the managed identity to run the Discovery service.").Required().StringVar(&ccf.IntegrationConfAccessGraphAzureSyncArguments.ManagedIdentity)
@@ -1138,7 +1143,7 @@ func onSELinuxFileContexts(configPath string) error {
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	fileContexts, err := selinux.FileContexts("/opt/teleport/default", cfg.DataDir, configPath)
+	fileContexts, err := selinux.FileContexts(cfg.DataDir, configPath)
 	if err != nil {
 		return trace.Wrap(err)
 	}

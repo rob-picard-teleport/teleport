@@ -60,7 +60,6 @@ import (
 	dynamicwindowsv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/dynamicwindows/v1"
 	gitserverv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/gitserver/v1"
 	healthcheckconfigv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/healthcheckconfig/v1"
-	identitycenterv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/identitycenter/v1"
 	integrationv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/integration/v1"
 	kubewaitingcontainerv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/kubewaitingcontainer/v1"
 	loginrulev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/loginrule/v1"
@@ -68,7 +67,6 @@ import (
 	mfav1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/mfa/v1"
 	notificationsv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/notifications/v1"
 	presencev1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/presence/v1"
-	provisioningv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/provisioning/v1"
 	secreportsv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/secreports/v1"
 	stableunixusersv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/stableunixusers/v1"
 	trustv1pb "github.com/gravitational/teleport/api/gen/proto/go/teleport/trust/v1"
@@ -130,6 +128,7 @@ import (
 	usagereporter "github.com/gravitational/teleport/lib/usagereporter/teleport"
 	"github.com/gravitational/teleport/lib/utils"
 	logutils "github.com/gravitational/teleport/lib/utils/log"
+	"github.com/gravitational/teleport/lib/utils/slices"
 )
 
 var (
@@ -2021,52 +2020,75 @@ func downgradeSAMLIdPRBAC(downgradedRole *types.RoleV6) *types.RoleV6 {
 	return downgradedRole
 }
 
-func maybeDowngradeRoleK8sAPIGroupToV7(role *types.RoleV6) *types.RoleV6 {
-	downgrade := func(resources []types.KubernetesResource) ([]types.KubernetesResource, bool) {
-		var out []types.KubernetesResource
-		for _, elem := range resources {
-			// If group is '*', simply remove it as the behavior in v7 would be the same.
-			if elem.APIGroup == types.Wildcard {
-				elem.APIGroup = ""
-			}
-			// If we have a wildcard kind, only keep it if the namespace is also a wildcard.
-			if elem.Kind == types.Wildcard && elem.Namespace == types.Wildcard && elem.APIGroup == "" {
-				out = append(out, elem)
-				continue
-			}
-			// If Kind is known in v7 and group is known, remove it the api group and keep the resource.
-			if v, ok := defaultRBACResources[allowedResourcesKey{elem.APIGroup, elem.Kind}]; ok {
-				elem.APIGroup = ""
-				elem.Kind = v
-				out = append(out, elem)
-				continue
-			}
-
-			// If we reach this point, we are dealing with a resource we don't know about or a wildcard
-			// As the scope of permissions granted differs, deny everything.
-			role.Spec.Allow.KubernetesResources = nil
-			role.Spec.Deny.KubernetesLabels = types.Labels{
-				types.Wildcard: {types.Wildcard},
-			}
-			role.Spec.Deny.KubernetesResources = []types.KubernetesResource{
-				{
-					Kind:      types.Wildcard,
-					Name:      types.Wildcard,
-					Namespace: types.Wildcard,
-					Verbs:     []string{types.Wildcard},
-				},
-			}
-			return nil, false
+func downgradeKubeResources[T types.KubeResource](role *types.RoleV6, resources []T) []T {
+	var out []T
+	for _, elem := range resources {
+		apiGroup, kind, namespace := elem.GetAPIGroup(), elem.GetKind(), elem.GetNamespace()
+		// If group is '*', simply remove it as the behavior in v7 would be the same.
+		if apiGroup == types.Wildcard {
+			elem.SetAPIGroup("")
+			apiGroup = ""
 		}
-		return out, true
-	}
+		// If we have a wildcard kind, only keep it if the namespace is also a wildcard.
+		if kind == types.Wildcard && namespace == types.Wildcard && apiGroup == "" {
+			out = append(out, elem)
+			continue
+		}
+		// If Kind is known in v7 and group is known, remove it.
+		if v, ok := defaultRBACResources[allowedResourcesKey{apiGroup, kind}]; ok {
+			elem.SetAPIGroup("")
+			elem.SetKind(v)
+			out = append(out, elem)
+			continue
+		}
 
-	var ok bool
-	role.Spec.Allow.KubernetesResources, ok = downgrade(role.Spec.Allow.KubernetesResources)
-	if !ok {
-		return role
+		// If we reach this point, we are dealing with a resource we don't know about or a wildcard
+		// As the scope of permissions granted differs, deny everything.
+		role.Spec.Allow.KubernetesResources = nil
+		role.Spec.Deny.KubernetesLabels = types.Labels{
+			types.Wildcard: {types.Wildcard},
+		}
+		role.Spec.Deny.KubernetesResources = []types.KubernetesResource{
+			{
+				Kind:      types.Wildcard,
+				Name:      types.Wildcard,
+				Namespace: types.Wildcard,
+				Verbs:     []string{types.Wildcard},
+			},
+		}
+		return nil
 	}
-	role.Spec.Deny.KubernetesResources, _ = downgrade(role.Spec.Deny.KubernetesResources)
+	return out
+}
+
+// maybeDowngradeRoleK8sAPIGroupToV7 downgrades the role to kubernetes resources to role v7 if the client
+// is below the minimum supported version.
+//
+// If there is an unsupported resource, clear them and inject deny all at the label level as well as setting the resource to be a wildcard deny.
+//
+// In the case of access requests, if there is a deny, also inject a wildcard deny in the request level.
+func maybeDowngradeRoleK8sAPIGroupToV7(role *types.RoleV6) *types.RoleV6 {
+	role.Spec.Allow.KubernetesResources = slices.FromPointers(downgradeKubeResources(role, slices.ToPointers(role.Spec.Allow.KubernetesResources)))
+	role.Spec.Deny.KubernetesResources = slices.FromPointers(downgradeKubeResources(role, slices.ToPointers(role.Spec.Deny.KubernetesResources)))
+
+	// NOTE: Make sure to handle access request deny before the allow.
+	if role.Spec.Deny.Request != nil && len(role.Spec.Deny.Request.KubernetesResources) > 0 {
+		role.Spec.Deny.Request.KubernetesResources = slices.FromPointers(downgradeKubeResources(role, slices.ToPointers(role.Spec.Deny.Request.KubernetesResources)))
+		// If we cleared the Deny, inject a wildcard.
+		if len(role.Spec.Deny.Request.KubernetesResources) == 0 {
+			role.Spec.Deny.Request.KubernetesResources = []types.RequestKubernetesResource{{Kind: types.Wildcard}}
+		}
+	}
+	if role.Spec.Allow.Request != nil && len(role.Spec.Allow.Request.KubernetesResources) > 0 {
+		role.Spec.Allow.Request.KubernetesResources = slices.FromPointers(downgradeKubeResources(role, slices.ToPointers(role.Spec.Allow.Request.KubernetesResources)))
+		// If we cleared out the Allow, inject a wildcard in Deny.
+		if len(role.Spec.Allow.Request.KubernetesResources) == 0 {
+			if role.Spec.Deny.Request == nil {
+				role.Spec.Deny.Request = &types.AccessRequestConditions{}
+			}
+			role.Spec.Deny.Request.KubernetesResources = append(role.Spec.Deny.Request.KubernetesResources, types.RequestKubernetesResource{Kind: types.Wildcard})
+		}
+	}
 
 	return role
 }
@@ -4029,6 +4051,39 @@ func (g *GRPCServer) GetWindowsDesktops(ctx context.Context, filter *types.Windo
 	}, nil
 }
 
+// ListWindowsDesktops returns a page of registered Windows desktop hosts.
+func (g *GRPCServer) ListWindowsDesktops(ctx context.Context, req *authpb.ListWindowsDesktopsRequest) (*authpb.ListWindowsDesktopsResponse, error) {
+	auth, err := g.authenticate(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	resp, err := auth.ListWindowsDesktops(ctx, types.ListWindowsDesktopsRequest{
+		WindowsDesktopFilter: req.WindowsDesktopFilter,
+		Limit:                int(req.Limit),
+		StartKey:             req.StartKey,
+		PredicateExpression:  req.PredicateExpression,
+		Labels:               req.Labels,
+		SearchKeywords:       req.SearchKeywords,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	out := &authpb.ListWindowsDesktopsResponse{
+		Desktops: make([]*types.WindowsDesktopV3, 0, len(resp.Desktops)),
+		NextKey:  resp.NextKey,
+	}
+
+	for _, d := range resp.Desktops {
+		if v3, ok := d.(*types.WindowsDesktopV3); ok {
+			out.Desktops = append(out.Desktops, v3)
+		}
+	}
+
+	return out, nil
+}
+
 // CreateWindowsDesktop registers a new Windows desktop host.
 func (g *GRPCServer) CreateWindowsDesktop(ctx context.Context, desktop *types.WindowsDesktopV3) (*emptypb.Empty, error) {
 	auth, err := g.authenticate(ctx)
@@ -5664,20 +5719,6 @@ func NewGRPCServer(cfg GRPCServerConfig) (*GRPCServer, error) {
 		return nil, trace.Wrap(err)
 	}
 	autoupdatev1pb.RegisterAutoUpdateServiceServer(server, autoUpdateServiceServer)
-
-	identityCenterService, err := local.NewIdentityCenterService(local.IdentityCenterServiceConfig{
-		Backend: cfg.AuthServer.bk,
-	})
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	identitycenterv1.RegisterIdentityCenterServiceServer(server, identityCenterService)
-
-	provisioningStateService, err := local.NewProvisioningStateService(cfg.AuthServer.bk)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	provisioningv1.RegisterProvisioningServiceServer(server, provisioningStateService)
 
 	gitServerService, err := gitserverv1.NewService(gitserverv1.Config{
 		Authorizer:               cfg.Authorizer,
