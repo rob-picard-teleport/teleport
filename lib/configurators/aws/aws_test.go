@@ -34,6 +34,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gravitational/trace"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/types"
@@ -52,7 +53,67 @@ var sortStringsTrans = cmp.Transformer("SortStrings", func(in []string) []string
 	return out
 })
 
+func TestGetIdentity(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		config         ConfiguratorConfig
+		roleARN        string
+		externalID     string
+		assert         assert.ErrorAssertionFunc
+		expectIdentity awslib.Identity
+	}{
+		{
+			name: "identity from assume role",
+			config: ConfiguratorConfig{
+				Flags: configurators.BootstrapFlags{
+					Manual: true,
+				},
+				identity: identityFromArn(t, "arn:aws:iam::123456789012:role/not-this-one"),
+			},
+			roleARN:        "arn:aws:iam::123456789012:role/example-role",
+			externalID:     "foobar",
+			assert:         assert.NoError,
+			expectIdentity: identityFromArn(t, "arn:aws:iam::123456789012:role/example-role"),
+		},
+		{
+			name: "placeholder identity in manual mode",
+			config: ConfiguratorConfig{
+				Flags: configurators.BootstrapFlags{
+					Manual: true,
+				},
+				identity: identityFromArn(t, "arn:aws:iam::123456789012:role/not-this-one"),
+			},
+			assert:         assert.NoError,
+			expectIdentity: identityFromArn(t, buildIAMARN(targetIdentityARNSectionPlaceholder, targetIdentityARNSectionPlaceholder, "user", defaultAttachUser)),
+		},
+		{
+			name: "cached identity",
+			config: ConfiguratorConfig{
+				identity: identityFromArn(t, "arn:aws:iam::123456789012:role/example-role"),
+			},
+			assert:         assert.NoError,
+			expectIdentity: identityFromArn(t, "arn:aws:iam::123456789012:role/example-role"),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			identity, err := tc.config.getIdentity(tc.roleARN, tc.externalID)
+			tc.assert(t, err)
+			if tc.expectIdentity == nil {
+				assert.Nil(t, identity)
+				return
+			}
+			if assert.NotNil(t, identity) {
+				assert.Equal(t, tc.expectIdentity.String(), identity.String())
+				assert.Equal(t, tc.expectIdentity.GetType(), identity.GetType())
+			}
+		})
+	}
+}
+
 func TestAWSIAMDocuments(t *testing.T) {
+	t.Parallel()
 	userTarget, err := awslib.IdentityFromArn("arn:aws:iam::123456789012:user/example-user")
 	require.NoError(t, err)
 
@@ -1099,6 +1160,7 @@ func mustBuildPolicyDocument(t *testing.T, flags configurators.BootstrapFlags, t
 }
 
 func TestAWSPolicyCreator(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	tests := map[string]struct {
@@ -1137,6 +1199,7 @@ func TestAWSPolicyCreator(t *testing.T) {
 }
 
 func TestAWSPoliciesAttacher(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	userTarget, err := awslib.IdentityFromArn("arn:aws:iam::1234567:user/example-user")
 	require.NoError(t, err)
@@ -1197,12 +1260,13 @@ func TestAWSPoliciesAttacher(t *testing.T) {
 }
 
 func TestAWSPoliciesTarget(t *testing.T) {
+	t.Parallel()
 	userIdentity := identityFromArn(t, "arn:aws:iam::123456789012:user/example-user")
 	roleIdentity := identityFromArn(t, "arn:aws:iam::123456789012:role/example-role")
 	assumedRoleIdentity := identityFromArn(t, "arn:aws:sts::123456789012:assumed-role/example-role/i-12345")
 	altAssumedRoleIdentity := identityFromArn(t, "arn:aws:sts::123456789012:assumed-role/alternate-role/i-12345")
 
-	defaultIdentity := identityFromArn(t, buildIAMARN(targetIdentityARNSectionPlaceholder, targetIdentityARNSectionPlaceholder, "user", defaultAttachUser))
+	defaultIdentity := identityFromArn(t, "arn:aws:iam::123456789012:user/me")
 	tests := map[string]struct {
 		config            ConfiguratorConfig
 		assumeRole        types.AssumeRole
@@ -1246,6 +1310,16 @@ func TestAWSPoliciesTarget(t *testing.T) {
 			targetPartitionID: "aws",
 			targetString:      "arn:aws:iam::123456789012:user/example-user",
 		},
+		"UserARNFromFlagsWrongAccount": {
+			config: ConfiguratorConfig{
+				Flags:    configurators.BootstrapFlags{AttachToUser: "arn:aws:iam::987654321098:user/alt-user"},
+				identity: defaultIdentity,
+			},
+			wantErrContains: unreachablePolicyTargetError{
+				target: identityFromArn(t, "arn:aws:iam::987654321098:user/alt-user"),
+				from:   defaultIdentity,
+			}.Error(),
+		},
 		"RoleNameFromFlags": {
 			config: ConfiguratorConfig{
 				Flags:    configurators.BootstrapFlags{AttachToRole: "example-role"},
@@ -1278,6 +1352,16 @@ func TestAWSPoliciesTarget(t *testing.T) {
 			targetAccountID:   "123456789012",
 			targetPartitionID: "aws",
 			targetString:      "arn:aws:iam::123456789012:role/example-role",
+		},
+		"RoleARNFromFlagsWrongAccount": {
+			config: ConfiguratorConfig{
+				Flags:    configurators.BootstrapFlags{AttachToRole: "arn:aws:iam::987654321098:role/alt-role"},
+				identity: defaultIdentity,
+			},
+			wantErrContains: unreachablePolicyTargetError{
+				target: identityFromArn(t, "arn:aws:iam::987654321098:role/alt-role"),
+				from:   defaultIdentity,
+			}.Error(),
 		},
 		"UserFromIdentity": {
 			config: ConfiguratorConfig{
@@ -1405,8 +1489,8 @@ func TestAWSPoliciesTarget(t *testing.T) {
 			},
 			assumeRole: types.AssumeRole{RoleARN: assumedRoleIdentity.String()},
 			wantErrContains: unreachablePolicyTargetError{
-				target:      identityFromArn(t, "arn:aws:iam::5678567856782:user/example-user"),
-				assumedRole: assumedRoleIdentity,
+				target: identityFromArn(t, "arn:aws:iam::5678567856782:user/example-user"),
+				from:   assumedRoleIdentity,
 			}.Error(),
 		},
 		"MatcherAssumeRoleWithRoleFlag": {
@@ -1440,8 +1524,8 @@ func TestAWSPoliciesTarget(t *testing.T) {
 			},
 			assumeRole: types.AssumeRole{RoleARN: altAssumedRoleIdentity.String()},
 			wantErrContains: unreachablePolicyTargetError{
-				target:      identityFromArn(t, "arn:aws:iam::567856785678:role/example-role"),
-				assumedRole: altAssumedRoleIdentity,
+				target: identityFromArn(t, "arn:aws:iam::567856785678:role/example-role"),
+				from:   altAssumedRoleIdentity,
 			}.Error(),
 		},
 		"MatcherAssumeRoleWithoutIAMPermission": {
@@ -1486,6 +1570,7 @@ func identityFromArn(t *testing.T, arn string) awslib.Identity {
 }
 
 func TestAWSDocumentConfigurator(t *testing.T) {
+	t.Parallel()
 	var err error
 	ctx := context.Background()
 	fileConfig := &config.FileConfig{
@@ -1553,6 +1638,7 @@ func TestAWSDocumentConfigurator(t *testing.T) {
 
 // TestAWSConfigurator tests all actions together.
 func TestAWSConfigurator(t *testing.T) {
+	t.Parallel()
 	var err error
 	ctx := context.Background()
 
@@ -2057,6 +2143,7 @@ func (m mockLocalRegionGetter) GetRegion(context.Context) (string, error) {
 }
 
 func Test_getFallbackRegion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		localRegionGetter localRegionGetter

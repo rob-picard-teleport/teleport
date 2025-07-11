@@ -298,10 +298,6 @@ type ConfiguratorConfig struct {
 	Flags configurators.BootstrapFlags
 	// ServiceConfig Teleport database service config.
 	ServiceConfig *servicecfg.Config
-	// Policies instance of the `Policies` that the actions use.
-	Policies awslib.Policies
-	// Identity is the current AWS credentials chain identity.
-	Identity awslib.Identity
 	// awsConfigs is a map of role ARN/external ID -> AWS config.
 	awsConfigs map[string]aws.Config
 	// policies is a map of role ARN/external ID -> AWS policies client.
@@ -328,11 +324,8 @@ func (c *ConfiguratorConfig) getAWSConfig(assumeRoleARN, externalID string) (aws
 	if cfg, ok := c.awsConfigs[key]; ok {
 		return cfg, nil
 	}
-
-	ctx := context.Background()
-
 	cfg, err := awsconfig.GetConfig(
-		ctx,
+		context.Background(),
 		"", /* get region from env > profile > fallback func */
 		awsconfig.WithFallbackRegionResolver(func(ctx context.Context) (string, error) {
 			return getFallbackRegion(ctx, os.Stdout, nil), nil
@@ -340,7 +333,6 @@ func (c *ConfiguratorConfig) getAWSConfig(assumeRoleARN, externalID string) (aws
 		awsconfig.WithAmbientCredentials(),
 		awsconfig.WithAssumeRole(assumeRoleARN, externalID),
 	)
-
 	if err != nil {
 		return aws.Config{}, trace.Wrap(err)
 	}
@@ -376,10 +368,6 @@ func (c *ConfiguratorConfig) getIdentity(assumeRoleARN, externalID string) (awsl
 	}
 	c.identity = identity
 	return identity, nil
-}
-
-func (c *ConfiguratorConfig) getCurrentIdentity() (awslib.Identity, error) {
-	return c.getIdentity(c.Flags.AssumeRoleARN, c.Flags.ExternalID)
 }
 
 // getPolicies gets the cached AWS policy client for the specified assume role ARN
@@ -423,10 +411,6 @@ func (c *ConfiguratorConfig) getIAMClient(assumeRoleARN, externalID string) (iam
 	})
 	c.iamClients[key] = iamClient
 	return iamClient, nil
-}
-
-func (c *ConfiguratorConfig) getCurrentIAMClient() (iamClient, error) {
-	return c.getIAMClient(c.Flags.AssumeRoleARN, c.Flags.ExternalID)
 }
 
 // getSSMClient gets the cached AWS SSM client for the specified assume role ARN,
@@ -732,7 +716,7 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 		if err != nil {
 			var unreachableErr unreachablePolicyTargetError
 			if errors.As(err, &unreachableErr) {
-				fmt.Printf("⚠️ Skipping matchers with identity %q: %s\n", unreachableErr.assumedRole, unreachableErr.Error())
+				fmt.Printf("⚠️ Skipping matchers with identity %q: %s\n", unreachableErr.from.GetName(), unreachableErr.Error())
 				continue
 			}
 			return nil, trace.Wrap(err)
@@ -757,42 +741,29 @@ func buildActions(config ConfiguratorConfig) ([]configurators.ConfiguratorAction
 }
 
 // unreachablePolicyTargetError indicates that a target identity could not be
-// accessed from an assumed role (typically due to them being in different
+// accessed from another identity (typically due to them being in different
 // accounts).
 type unreachablePolicyTargetError struct {
-	target      awslib.Identity
-	assumedRole awslib.Identity
+	target awslib.Identity
+	from   awslib.Identity
 }
 
 func (e unreachablePolicyTargetError) Error() string {
 	return fmt.Sprintf(
 		"%q is unreachable from %q",
-		e.target, e.assumedRole,
+		e.target, e.from,
 	)
 }
 
 // policiesTarget defines which target and its type the policies will be
 // attached to.
-func policiesTarget(
-	config ConfiguratorConfig,
-	targetAssumeRole types.AssumeRole,
-) (awslib.Identity, error) {
-	currentIdentity, err := config.getCurrentIdentity()
+func policiesTarget(config ConfiguratorConfig, targetAssumeRole types.AssumeRole) (awslib.Identity, error) {
+	baseIdentity, err := config.getIdentity(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	defaultPartitionID := currentIdentity.GetPartition()
-	defaultAccountID := currentIdentity.GetAccountID()
-	var assumeRoleIdentity awslib.Identity
-	if targetAssumeRole.RoleARN != "" {
-		var err error
-		assumeRoleIdentity, err = config.getIdentity(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		defaultPartitionID = assumeRoleIdentity.GetPartition()
-		defaultAccountID = assumeRoleIdentity.GetAccountID()
-	}
+	defaultPartitionID := baseIdentity.GetPartition()
+	defaultAccountID := baseIdentity.GetAccountID()
 
 	// Attach to user if provided.
 	attachToUser := config.Flags.AttachToUser
@@ -805,8 +776,8 @@ func policiesTarget(
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		if assumeRoleIdentity != nil && assumeRoleIdentity.GetAccountID() != userIdentity.GetAccountID() {
-			return nil, unreachablePolicyTargetError{target: userIdentity, assumedRole: assumeRoleIdentity}
+		if defaultAccountID != userIdentity.GetAccountID() {
+			return nil, unreachablePolicyTargetError{target: userIdentity, from: baseIdentity}
 		}
 		return userIdentity, nil
 	}
@@ -822,36 +793,26 @@ func policiesTarget(
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		if assumeRoleIdentity != nil && assumeRoleIdentity.GetAccountID() != roleIdentity.GetAccountID() {
-			return nil, unreachablePolicyTargetError{target: roleIdentity, assumedRole: assumeRoleIdentity}
+		if defaultAccountID != roleIdentity.GetAccountID() {
+			return nil, unreachablePolicyTargetError{target: roleIdentity, from: baseIdentity}
 		}
 		return roleIdentity, nil
-	}
-
-	// Attach to assumed role if provided.
-	if assumeRoleIdentity != nil {
-		assumeRoleIAMClient, err := config.getIAMClient(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
-		if err != nil {
-			return nil, trace.Wrap(err)
-		}
-		fullAssumeRoleIdentity, err := getRoleARNForAssumedRole(assumeRoleIAMClient, assumeRoleIdentity)
-		return fullAssumeRoleIdentity, trace.Wrap(err)
 	}
 
 	// Attach to current identity.
-	if currentIdentity.GetType() == awslib.ResourceTypeAssumedRole {
-		currentIAMClient, err := config.getCurrentIAMClient()
+	if baseIdentity.GetType() == awslib.ResourceTypeAssumedRole {
+		baseIAMClient, err := config.getIAMClient(targetAssumeRole.RoleARN, targetAssumeRole.ExternalID)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		roleIdentity, err := getRoleARNForAssumedRole(currentIAMClient, currentIdentity)
+		roleIdentity, err := getRoleARNForAssumedRole(baseIAMClient, baseIdentity)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
 		return roleIdentity, nil
 	}
 
-	return currentIdentity, nil
+	return baseIdentity, nil
 }
 
 // buildIAMARN constructs an AWS IAM ARN string from the given partition,
