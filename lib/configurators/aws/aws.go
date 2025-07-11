@@ -503,8 +503,8 @@ func (c *ConfiguratorConfig) CheckAndSetDefaults() error {
 }
 
 // getDistinctAssumedRoles gets a list of the distinct roles that can be assumed
-// from the AWS matchers. If there are no AWS matchers, one empty AssumeRole
-// is returned.
+// from the AWS matchers. If there are no AWS matchers, one AssumeRole
+// is returned for the current identity.
 func (c *ConfiguratorConfig) getDistinctAssumedRoles() []types.AssumeRole {
 	defaultAssumeRole := types.AssumeRole{
 		RoleARN:    c.Flags.AssumeRoleARN,
