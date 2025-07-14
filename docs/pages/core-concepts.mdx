@@ -62,30 +62,17 @@ Each Teleport process can run one or more services. Different services enable di
 to a resource, and the `database_service` proxies connections to databases. Read about all subcommands of `teleport` in our [CLI Reference](./reference/cli/teleport.mdx). 
 The **"Enabled by Default"** column indicates whether each service is active by default when you run `teleport start` without specifying services.
 
-## Teleport Agent services
-
-| Service Name  | Description   | Common Use Case  | Enabled by Default |
-| ----------------- | ------------------------------------------------------------------------------ | -------------------------------------------------- | ------------------ |
-| `ssh_service` | Provides SSH access to Linux servers with auditing and session recording. | Secure access to Linux nodes | ✅ |
-| `kubernetes_service` | Provides secure, audited access to Kubernetes clusters. | Access control and session tracking for Kubernetes | ❌ |
-| `app_service` | Provides secure access to internal web applications.                           | Protect internal tools and dashboards | ❌ |
-| `db_service` | Manages identity-aware access to databases (e.g., PostgreSQL, MySQL, MongoDB). | Role-based database access with auditing | ❌ |
-| `discovery_service` | Automatically discovers and joins cloud resources (e.g., EC2, Azure VMs). | Auto-enroll infrastructure | ❌ |
-| `windows_desktop_service` | Enables RDP access to Windows desktops through Teleport. | Access control and recording for Windows systems | ❌ |
-| `jamf_service` | Integrates with Jamf for device trust enforcement. | Verify macOS device compliance before login | ❌ |
-| `debug_service` | Exposes internal metrics and debug endpoints for diagnostics. | Development, profiling, and debugging | ✅ |
-
 ### Teleport SSH Service
 
 An SSH server implementation that allows users to execute commands on remote
 machines while taking advantage of Teleport's built-in access controls,
-auditing, and session recording.
+auditing, and session recording. The SSH service is enabled by default.
 
 Read more about the [Teleport SSH Service](./enroll-resources/server-access/introduction.mdx).
 
 ### Teleport Kubernetes Service
 
-Proxies HTTP traffic to the Kubernetes API server.
+Proxies HTTP traffic to the Kubernetes API server. Use for Access control and session tracking for Kubernetes.
 
 Read more about the [Teleport Kubernetes
 Service](./enroll-resources/kubernetes-access/introduction.mdx)
@@ -93,7 +80,7 @@ Service](./enroll-resources/kubernetes-access/introduction.mdx)
 ### Teleport Application Service
 
 Proxies HTTP and TCP traffic to user-configured endpoints, e.g., internal web
-applications or the AWS Console.
+applications or the AWS Console. Protect your internal tools and dashboards.
 
 Read more about the [Teleport Application
 Service](./enroll-resources/application-access/introduction.mdx).
@@ -101,31 +88,48 @@ Service](./enroll-resources/application-access/introduction.mdx).
 ### Teleport Database Service
 
 Proxies TCP traffic in the native protocols of popular databases, including
-PostgreSQL and MySQL.
+PostgreSQL and MySQL. Use to enforce role-based access to databases with full audit logging.
 
 Read more about the [Teleport Database
 Service](./enroll-resources/database-access/database-access.mdx).
 
 ### Teleport Discovery Service
 
-The `discovery_service` automates the process of finding and enrolling cloud resources such as AWS EC2 instances and Azure VMs into a Teleport cluster. It continuously scans supported cloud environments and adds matching resources based on configured rules, reducing the need for manual node registration. Read more about the [Teleport Discovery Service](./enroll-resources/auto-discovery/auto-discovery.mdx).
+The Teleport Discovery Service automates the process of finding and enrolling cloud resources such as AWS EC2 instances and Azure VMs into a 
+Teleport cluster. It continuously scans supported cloud environments and adds matching resources based on configured rules, 
+reducing the need for manual node registration. 
+
+Read more about the [Teleport Discovery Service](./enroll-resources/auto-discovery/auto-discovery.mdx).
 
 ### Teleport Desktop Service
 
-Proxies Remote Desktop Protocol traffic to Windows desktops.
+Proxies Remote Desktop Protocol (RDP) traffic to Windows desktops. Enables access control and session recording for Windows systems
 
 Read more about the [Teleport Desktop
 Service](./enroll-resources/desktop-access/introduction.mdx).
 
 ### Teleport Jamf Service
 
-The `jamf_service` integrates with Jamf to enrolls trusted devices for macOS endpoints. Before a user is granted access, Teleport checks the device's compliance status with Jamf. This service is ideal for organizations that need to verify macOS device posture as part of their access control strategy, ensuring only trusted devices are allowed to connect. [Read more about the Jamf Service](./identity-governance/device-trust/jamf-integration.mdx).
+The Jamf Service integrates with Jamf to enrolls trusted devices for macOS endpoints. 
+Before a user is granted access, Teleport checks the device's compliance status with Jamf. 
+This service is ideal for organizations that need to verify macOS device posture as part of 
+their access control strategy, ensuring only trusted devices are allowed to connect. 
+[Read more about the Jamf Service](./identity-governance/device-trust/jamf-integration.mdx).
 
 ### Teleport Debug Service
 
-Provides internal diagnostics, exposing metrics, performance profiling tools, and debugging endpoints. It is designed for development and troubleshooting scenarios, enabling operators and developers to inspect the internal state of Teleport services. This can be helpful for performance tuning, analyzing bottlenecks, or diagnosing unexpected behavior in a controlled environment. [Read more about the Debug Service](./admin-guides/management/admin/troubleshooting.mdx#step-13-enable-verbose-logging).
+Provides internal diagnostics, exposing metrics, performance profiling tools, and debugging endpoints. It is designed for development and troubleshooting scenarios, enabling operators and developers to inspect the internal state of Teleport services. 
+This can be helpful for performance tuning, analyzing bottlenecks, or diagnosing unexpected behavior in a controlled environment. The debug service is enabled by default.
+[Read more about the Debug Service](./admin-guides/management/admin/troubleshooting.mdx#step-13-enable-verbose-logging).
 
-### Machine ID
+## Agent
+
+An instance of a **Teleport service** is called an **agent**. For all Teleport
+services besides the **Teleport SSH Service**, an agent can enable access to
+multiple resources, and can run on a separate host from the resources it enables
+access to. All agents must run in the same network as their target resources.
+
+## Machine ID
 
 Allows machines and services—called bot users—to communicate securely with
 resources in your infrastructure by automatically provisioning and renewing
@@ -139,13 +143,6 @@ Unlike other **Teleport services**, Machine ID runs via the `tbot` binary,
 rather than the `teleport` binary.
 
 Read more in our [Machine ID guide](machine-workload-identity/machine-id/introduction.mdx).
-
-### Agent
-
-An instance of a **Teleport service** is called an **agent**. For all Teleport
-services besides the **Teleport SSH Service**, an agent can enable access to
-multiple resources, and can run on a separate host from the resources it enables
-access to. All agents must run in the same network as their target resources.
 
 ## Teleport editions
 
@@ -241,22 +238,31 @@ users, roles, and resources, but the trust relationship allows users with certai
 in the root cluster to be mapped to roles and permissions defined in the leaf cluster.
 
 For more information about how to configure a trust relationship between clusters,
-see [Configure Trusted Clusters](admin-guides/management/admin/trustedclusters.mdx).
-For an overview of the architecture used in a trusted cluster relationship, see
-[Trusted Cluster Architecture](reference/architecture/trustedclusters.mdx).
+see [Configure Trusted Clusters](admin-guides/management/admin/trustedclusters.mdx). For an overview of the architecture used in a trusted cluster relationship, see [Trusted Cluster Architecture](reference/architecture/trustedclusters.mdx).
 
 ## Teleport clients
 
-The `tbot` agent is often deployed in non-interactive environments to bootstrap access securely. 
-All client tools ultimately interact with the Auth and Proxy services, which serve as the backbone of the Teleport platform.
+A **Teleport client** connects to a Teleport cluster to authenticate, request access, or interact with resources such as servers, databases, Kubernetes clusters, desktops, or internal web apps. Clients use short-lived certificates and Teleport’s Role-Based Access Control (RBAC) to ensure secure, auditable access. All clients rely on the Teleport Auth Service to verify identity and issue credentials, and they may connect through the Proxy Service when accessing resources behind firewalls or in private networks.
 
+### `tsh`
 
-| Client tool | Description | Common use case |
-| -------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `tsh` | Command-line tool for users to authenticate, connect to resources, and manage sessions. | CLI-based access for engineers and operators |
-| `tctl` | Administrative CLI for managing roles, users, configurations, and resources. | Cluster setup and ongoing admin operations |
-| `tbot` | Lightweight agent that provisions credentials to workloads and CI/CD pipelines. | Machine and workload authentication |
-| Teleport Connect | GUI application for accessing servers, databases, apps, and desktops.  GUI-based daily access for engineers | GUI-based daily access for engineers |
+`tsh` is the command-line tool used by Teleport users to authenticate, connect to infrastructure resources, and manage active sessions. 
+It supports SSH, Kubernetes, databases, and applications. This tool is commonly used by engineers and operators who prefer terminal-based workflows.
+
+### `tctl`
+
+`tctl` is the administrative command-line interface for managing a Teleport cluster. It allows administrators to configure roles, manage users, and work with resources such as tokens, trusted clusters, and audit logs. 
+It's typically used during initial cluster setup and for ongoing administrative tasks.
+
+### `tbot`
+
+`tbot` is a lightweight agent designed to provision short-lived credentials to workloads and automation systems like CI/CD pipelines. 
+It enables secure machine and workload authentication without relying on long-lived secrets. This makes it ideal for infrastructure automation and Zero Trust deployments.
+
+### Teleport Connect
+
+**Teleport Connect** is a graphical desktop application that provides an intuitive interface for accessing infrastructure resources such as 
+servers, databases, applications, and desktops. It's ideal for engineers who prefer GUI-based access for their day-to-day tasks, offering the same secure, certificate-based access as other Teleport clients.
 
 Further reading:
 - [Introduction to Teleport clients](./connect-your-client/connect-your-client.mdx) Authenticate to Teleport and access protected resources. Designed for end users with links to additional documentation.
