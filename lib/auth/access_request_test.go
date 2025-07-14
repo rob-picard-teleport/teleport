@@ -57,7 +57,7 @@ import (
 )
 
 type accessRequestTestPack struct {
-	tlsServer   *authtest.TestTLSServer
+	tlsServer   *authtest.TLSServer
 	clusterName string
 	roles       map[string]types.RoleSpecV6
 	users       map[string][]string
@@ -68,7 +68,7 @@ type accessRequestTestPack struct {
 }
 
 func newAccessRequestTestPack(ctx context.Context, t *testing.T) *accessRequestTestPack {
-	testAuthServer, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	testAuthServer, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		Dir: t.TempDir(),
 	})
 	require.NoError(t, err, "%s", trace.DebugReport(err))
@@ -254,7 +254,7 @@ func TestAccessRequestResourceRBACLimits(t *testing.T) {
 
 	clock := clockwork.NewFakeClock()
 
-	authServer, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	authServer, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		Dir:   t.TempDir(),
 		Clock: clock,
 	})
@@ -372,7 +372,7 @@ func TestListAccessRequests(t *testing.T) {
 
 	clock := clockwork.NewFakeClock()
 
-	authServer, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	authServer, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		Dir:   t.TempDir(),
 		Clock: clock,
 	})
@@ -960,7 +960,8 @@ func testSingleAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 
 			elevatedCert, err := tls.X509KeyPair(certs.TLS, testPack.tlsPrivKey)
 			require.NoError(t, err)
-			elevatedClient := testPack.tlsServer.NewClientWithCert(elevatedCert)
+			elevatedClient, err := testPack.tlsServer.NewClientWithCert(elevatedCert)
+			require.NoError(t, err)
 
 			// should be able to list the expected nodes
 			nodes, err = elevatedClient.GetNodes(ctx, defaults.Namespace)
@@ -1072,7 +1073,8 @@ func testBotAccessRequestReview(t *testing.T, testPack *accessRequestTestPack) {
 	require.NoError(t, err)
 	tlsCert, err := tls.X509KeyPair(certRes.TLS, testPack.tlsPrivKey)
 	require.NoError(t, err)
-	impersonatedBotClient := testPack.tlsServer.NewClientWithCert(tlsCert)
+	impersonatedBotClient, err := testPack.tlsServer.NewClientWithCert(tlsCert)
+	require.NoError(t, err)
 	defer impersonatedBotClient.Close()
 
 	// Create an access request for the bot to approve
@@ -1161,7 +1163,9 @@ func testMultiAccessRequests(t *testing.T, testPack *accessRequestTestPack) {
 			require.NoError(t, err)
 			tlsCert, err := tls.X509KeyPair(certs.TLS, testPack.tlsPrivKey)
 			require.NoError(t, err)
-			return testPack.tlsServer.NewClientWithCert(tlsCert), certs
+			client, err := testPack.tlsServer.NewClientWithCert(tlsCert)
+			require.NoError(t, err)
+			return client, certs
 		}
 	}
 	applyAccessRequests := func(newRequests ...string) newClientFunc {
@@ -1404,7 +1408,7 @@ func checkCerts(t *testing.T,
 func TestCreateSuggestions(t *testing.T) {
 	t.Parallel()
 
-	testAuthServer, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	testAuthServer, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		Dir: t.TempDir(),
 	})
 	require.NoError(t, err)

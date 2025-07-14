@@ -209,7 +209,7 @@ func TestValidateTrustedCluster(t *testing.T) {
 	const validToken = "validtoken"
 	ctx := context.Background()
 
-	testAuth, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	testAuth, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		ClusterName: localClusterName,
 		Dir:         t.TempDir(),
 	})
@@ -460,7 +460,7 @@ func newTestAuthServer(ctx context.Context, t *testing.T, name ...string) *auth.
 
 func TestUpsertTrustedCluster(t *testing.T) {
 	ctx := context.Background()
-	testAuth, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	testAuth, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		ClusterName: "localcluster",
 		Dir:         t.TempDir(),
 	})
@@ -598,7 +598,7 @@ func TestUpsertTrustedCluster(t *testing.T) {
 
 func TestUpdateTrustedCluster(t *testing.T) {
 	ctx := context.Background()
-	testAuth, err := authtest.NewTestAuthServer(authtest.TestAuthServerConfig{
+	testAuth, err := authtest.NewAuthServer(authtest.AuthServerConfig{
 		ClusterName: "localcluster",
 		Dir:         t.TempDir(),
 	})
