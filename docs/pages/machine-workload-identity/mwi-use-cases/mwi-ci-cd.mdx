@@ -14,9 +14,7 @@ Machine & Workload Identity has native integrations for many CI/CD providers and
 
 # No More Secrets
 
-<!-- TODO: insert graphic of “before.” Cluster is publicly exposed, secrets in the pipeline.-->
-
-This probably looks familiar: a CI/CD pipeline running in GitHub Actions on GitHub’s infrastructure, outside of the company’s network. It builds a container and pushes it to an AWS Elastic Container Registry, and uses Helm to update a chart in a Kubernetes cluster with the new container image. To take those actions it needs two secrets stored in the GitHub Action settings:
+This probably looks familiar: a CI/CD pipeline running in GitHub Actions on GitHub's infrastructure, outside of the company’s network. It builds a container and pushes it to an AWS Elastic Container Registry, and uses Helm to update a chart in a Kubernetes cluster with the new container image. To take those actions it needs two secrets stored in the GitHub Action settings:
 
 - An AWS keypair  
 - A Kubernetes config file
@@ -34,13 +32,7 @@ Teleport authenticates the pipeline using GitHub’s OIDC endpoint, confirming t
 
 *No secrets are stored in the CI/CD tool, so there is nothing to exfiltrate.*
 
-Todo: insert graphic of “after.” Cluster is private, no secrets.
-
 Get started securing your CI/CD pipelines:
-
-<!-- TODO: 
-Insert: links/cards to the various CI/CD integration pages  
-Insert: links/cards to various resource access pages -->
 
 ## Further reading
 
