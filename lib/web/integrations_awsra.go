@@ -149,86 +149,117 @@ func (h *Handler) awsRolesAnywhereConfigureTrustAnchor(w http.ResponseWriter, r 
 // If a trust anchor is provided in the body, it will be used to check the connection ignoring the integration.
 // Otherwise, the integration is used to check the connection.
 func (h *Handler) awsRolesAnywherePing(w http.ResponseWriter, r *http.Request, p httprouter.Params, sctx *SessionContext, site reversetunnelclient.RemoteSite) (any, error) {
-	ctx := r.Context()
-
-	integrationName := p.ByName("name")
-	if integrationName == "" {
-		return nil, trace.BadParameter("an integration name is required")
-	}
-
-	var req ui.AWSRolesAnywherePingRequest
-	if err := httplib.ReadJSON(r, &req); err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	clt, err := sctx.GetUserClient(ctx, site)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	pingRequest := &integrationv1.AWSRolesAnywherePingRequest{}
-
-	// When creating an integration, the Ping is called with an empty integration, but Trust Anchor, Profile and Role ARNs must be provided.
-	// This allow us to check if the integration is properly configured before creating it.
-	switch {
-	case req.TrustAnchorARN != "":
-		if req.SyncRoleARN == "" || req.SyncProfileARN == "" {
-			return nil, trace.BadParameter("sync role and sync profile ARNs must be provided when trust anchor ARN is provided")
-		}
-
-		pingRequest.Mode = &integrationv1.AWSRolesAnywherePingRequest_Custom{
-			Custom: &integrationv1.AWSRolesAnywherePingRequestWithoutIntegration{
-				TrustAnchorArn: req.TrustAnchorARN,
-				RoleArn:        req.SyncRoleARN,
-				ProfileArn:     req.SyncProfileARN,
-			},
-		}
-
-	default:
-		pingRequest.Mode = &integrationv1.AWSRolesAnywherePingRequest_Integration{
-			Integration: integrationName,
-		}
-	}
-
-	pingResp, err := clt.IntegrationAWSRolesAnywhereClient().AWSRolesAnywherePing(ctx, pingRequest)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
+	// todo mberg
 	return ui.AWSRolesAnywherePingResponse{
-		ProfileCount: int(pingResp.GetProfileCount()),
-		AccountID:    pingResp.GetAccountId(),
-		ARN:          pingResp.GetArn(),
-		UserID:       pingResp.GetUserId(),
+		ProfileCount: 2,
+		AccountID:    "123456789012",
+		ARN:          "arn:aws:sts::123456789012:assumed-role/MarcoRASyncRole/uuid1",
+		UserID:       "RANDOMVALUE:uuid1",
 	}, nil
+
+	//ctx := r.Context()
+	//
+	//integrationName := p.ByName("name")
+	//if integrationName == "" {
+	//	return nil, trace.BadParameter("an integration name is required")
+	//}
+	//
+	//var req ui.AWSRolesAnywherePingRequest
+	//if err := httplib.ReadJSON(r, &req); err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//
+	//clt, err := sctx.GetUserClient(ctx, site)
+	//if err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//
+	//pingRequest := &integrationv1.AWSRolesAnywherePingRequest{}
+	//
+	//// When creating an integration, the Ping is called with an empty integration, but Trust Anchor, Profile and Role ARNs must be provided.
+	//// This allow us to check if the integration is properly configured before creating it.
+	//switch {
+	//case req.TrustAnchorARN != "":
+	//	if req.SyncRoleARN == "" || req.SyncProfileARN == "" {
+	//		return nil, trace.BadParameter("sync role and sync profile ARNs must be provided when trust anchor ARN is provided")
+	//	}
+	//
+	//	pingRequest.Mode = &integrationv1.AWSRolesAnywherePingRequest_Custom{
+	//		Custom: &integrationv1.AWSRolesAnywherePingRequestWithoutIntegration{
+	//			TrustAnchorArn: req.TrustAnchorARN,
+	//			RoleArn:        req.SyncRoleARN,
+	//			ProfileArn:     req.SyncProfileARN,
+	//		},
+	//	}
+	//
+	//default:
+	//	pingRequest.Mode = &integrationv1.AWSRolesAnywherePingRequest_Integration{
+	//		Integration: integrationName,
+	//	}
+	//}
+	//
+	//pingResp, err := clt.IntegrationAWSRolesAnywhereClient().AWSRolesAnywherePing(ctx, pingRequest)
+	//if err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//
+	//return ui.AWSRolesAnywherePingResponse{
+	//	ProfileCount: int(pingResp.GetProfileCount()),
+	//	AccountID:    pingResp.GetAccountId(),
+	//	ARN:          pingResp.GetArn(),
+	//	UserID:       pingResp.GetUserId(),
+	//}, nil
 }
 
 // awsRolesAnywhereListProfiles lists profiles Roles Anywhere Profiles accessible by the integration.
 func (h *Handler) awsRolesAnywhereListProfiles(w http.ResponseWriter, r *http.Request, p httprouter.Params, sctx *SessionContext, site reversetunnelclient.RemoteSite) (any, error) {
-	ctx := r.Context()
-
-	integrationName := p.ByName("name")
-	if integrationName == "" {
-		return nil, trace.BadParameter("an integration name is required")
+	// todo mberg
+	mockProfiles := []*integrationv1.RolesAnywhereProfile{
+		{
+			Arn:                   "arn:aws:rolesanywhere:eu-west-2:123456789012:profile/uuid1",
+			Enabled:               true,
+			Name:                  "RO-S3",
+			AcceptRoleSessionName: true,
+			Roles:                 []string{"arn:aws:iam::123456789012:role/MarcoRA-RO-S3-Role"},
+		},
+		{
+			Arn:                   "arn:aws:rolesanywhere:eu-west-2:123456789012:profile/uuid2",
+			Enabled:               true,
+			Name:                  "RO-EC2",
+			AcceptRoleSessionName: true,
+			Roles:                 []string{"arn:aws:iam::123456789012:role/MarcoRA-RO-EC2-Role"},
+			Tags:                  map[string]string{"MyTag1": "MyTagValue1", "MyTag2": "MyTagValue2"},
+		},
 	}
+	return integrationv1.ListRolesAnywhereProfilesResponse{
+		Profiles:      mockProfiles,
+		NextPageToken: "",
+	}, nil
 
-	var req ui.AWSRolesAnywhereListProfilesRequest
-	if err := httplib.ReadJSON(r, &req); err != nil {
-		return nil, trace.Wrap(err)
-	}
+	//ctx := r.Context()
 
-	clt, err := sctx.GetUserClient(ctx, site)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	listResp, err := clt.IntegrationAWSRolesAnywhereClient().ListRolesAnywhereProfiles(ctx, &integrationv1.ListRolesAnywhereProfilesRequest{
-		Integration:   integrationName,
-		NextPageToken: req.StartKey,
-	})
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	return listResp, nil
+	//integrationName := p.ByName("name")
+	//if integrationName == "" {
+	//	return nil, trace.BadParameter("an integration name is required")
+	//}
+	//
+	//var req ui.AWSRolesAnywhereListProfilesRequest
+	//if err := httplib.ReadJSON(r, &req); err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//
+	//clt, err := sctx.GetUserClient(ctx, site)
+	//if err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//
+	//listResp, err := clt.IntegrationAWSRolesAnywhereClient().ListRolesAnywhereProfiles(ctx, &integrationv1.ListRolesAnywhereProfilesRequest{
+	//	Integration:   integrationName,
+	//	NextPageToken: req.StartKey,
+	//})
+	//if err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//
+	//return listResp, nil
 }
