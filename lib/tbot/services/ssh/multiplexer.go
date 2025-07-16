@@ -37,7 +37,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gravitational/teleport"
 	"github.com/gravitational/trace"
 	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
@@ -117,10 +116,7 @@ func MultiplexerServiceBuilder(
 			identityGenerator:         deps.IdentityGenerator,
 			clientBuilder:             deps.ClientBuilder,
 		}
-		svc.log = deps.Logger.With(
-			teleport.ComponentKey,
-			teleport.Component(teleport.ComponentTBot, "svc", svc.String()),
-		)
+		svc.log = deps.LoggerForService(svc)
 		svc.statusReporter = deps.StatusRegistry.AddService(svc.String())
 		return svc, nil
 	}
