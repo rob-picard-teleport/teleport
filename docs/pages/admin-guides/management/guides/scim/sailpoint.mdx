@@ -1,80 +1,9 @@
 ---
 title: SCIM Sailpoint Integration
-description: How to manage Access List membership via SCIM SailPoint integration
-
+description: How to Configure SCIM Connector in SailPoint to manage Access List membership
 ---
 
-
-## Step 1/4. Configure SCIM Integration
-Teleport provides a guided web UI based configuration flow for SCIM integration.
-
-In the Teleport Web UI, go to **"Add new integration"** and select **SCIM**.
-
-![Plugin Install](../../../../img/sailpoint/plugin-install.png)
-
-
-Select the **SAML connector** to associate SCIM-provisioned users with SSO logins.
-
-- By default, SSO users in Teleport are ephemeral.
-- SCIM provisioning ensures users are persistently created and managed by
- SailPoint.
-
-![Connector Selection](../../../../img/sailpoint/plugin-connector.png)
-
-
-Click **Continue** to proceed to the **SCIM Credentials** screen.
-
-- Teleport uses OAuth 2.0 Bearer Tokens for SCIM authentication.
-- Copy the **Client ID**, **Client Secret**, and **Base URL** — you'll use them
- when configuring SailPoint.
-
-## Step 2/4: Create a SCIM-Managed Access List in Teleport
-
-Create a new Access List in Teleport using Terraform. Be sure to set `type = "scim"`
-and match `spec.title` to the name of a SailPoint entitlement group this list should be synced to:
-
-
-```hcl
-resource "teleport_access_list" "acl-group-requester" {
-  header = {
-    version = "v1"
-    name = "scim-group-requester"
-  }
-  spec = {
-    title = "GroupRequester"
-    type = "scim"
-    grants = {
-      roles  = ["requester"]
-      traits = []
-    }
-    owners = [
-      {
-        name = "alice"
-      }
-    ]
-    membership_requires = {
-      roles = []
-    }
-    ownership_requires = {
-      roles = []
-    }
-    audit = {
-      recurrence = {
-        frequency    = 3
-        day_of_month = 15
-      }
-    }
-  }
-}
-```
-
-<Admonition type="info">
-    The SCIM group name (displayName) in SailPoint must exactly match
-    `spec.title` in the Teleport Access List.
-</Admonition>
-
-
-## Step 3/4: Configure SCIM 2.0 Teleport Connector in SailPoint
+## Step 1/2: Configure SCIM 2.0 Teleport Connector in SailPoint
 
 To integrate Teleport with SailPoint using SCIM, you need to configure a SCIM connector in SailPoint IdentityNow or SailPoint IdentityIQ.
 The exact configuration steps may vary slightly depending on your version of SailPoint, but the general process is as follows:
@@ -86,39 +15,39 @@ Select **SCIM 2.0** as the application type and provide the required configurati
 Create a new SCIM connector in SailPoint at: Applications > Application Definition > Add New Application.
 Select **SCIM 2.0** as the application type and provide the required configuration details:
 
-![Sailpoint Connector Details](../../../../img/sailpoint/sailpoint-1.png)
+![Sailpoint Connector Details](../../../../../img/sailpoint/sailpoint-1.png)
 
 Set the **Base URL** and provided by Teleport under **Configuration -> Settings**.
 Set the Authentication Type to OAuth 2.0 with the Grant Type set to **Client Credentials**.
 Copy Client ID and Client Secret from the saved Teleport SCIM configuration settings.
 Click **Test Connection** to verify that the connection is successful:
 
-![Sailpoint SCIM Oauth](../../../../img/sailpoint/sailspoint-scim-config.png)
+![Sailpoint SCIM Oauth](../../../../../img/sailpoint/sailspoint-scim-config.png)
 
-### Configure Discover the SCIM Schema:
+### Configure Discover the SCIM Schema
 
 Under  **Configuration -> Schema**, click **Discover Schema Attributes** on both the **Accounts** and **Groups** tabs to retrieve the schema attributes:
-![Account Schema Discovery](../../../../img/sailpoint/sailpoint-3.png)
-![Group Schema Discovery](../../../../img/sailpoint/sailpoint-4.png)
+![Account Schema Discovery](../../../../../img/sailpoint/sailpoint-3.png)
+![Group Schema Discovery](../../../../../img/sailpoint/sailpoint-4.png)
 Go to the **Provisioning Policy** section, and create a **Create Policy** that maps the `userName` SCIM attribute to the user’s email address:
-![User Provisioning settings](../../../../img/sailpoint/sailpoint-5.png)
+![User Provisioning settings](../../../../../img/sailpoint/sailpoint-5.png)
 Save all changes.
 
-#### Configure SCIM Group Aggregation in SailPoint:
+#### Configure SCIM Group Aggregation in SailPoint
 
 Navigate to **Setup > Tasks -> New Task -> Group Aggregation**.
-![Select Aggregation](../../../../img/sailpoint/sailpoint-6.png)
+![Select Aggregation](../../../../../img/sailpoint/sailpoint-6.png)
 Select the **Teleport SCIM Connector**, then click **Save and Execute** to run the aggregation task.
-![Configure Aggregation](../../../../img/sailpoint/sailpoint-7.png)
+![Configure Aggregation](../../../../../img/sailpoint/sailpoint-7.png)
 If the aggregation completes successfully,
 you should see the imported Access Lists from Teleport in SailPoint under: **Applications > Entitlement Catalog**
 
-![Aggregation Result](../../../../img/sailpoint/sailpoint-8.png)
+![Aggregation Result](../../../../../img/sailpoint/sailpoint-8.png)
 
-## Step 4/4: Submit Access Requests in Sailpoint Group Entitlement representing Access List (Optional)
+## Step 2/2: Submit Access Requests in Sailpoint Group Entitlement representing Access List (Optional)
 
 Go to Manage > Manage User Access > Manage User Access.
 Submit an Access Request for a mapped Access List (as represented by a group
 entitlement in SailPoint).
-![Access request](../../../../img/sailpoint/sailpoint-9.png)
+![Access request](../../../../../img/sailpoint/sailpoint-9.png)
 Once the request is approved, the user will be added to the appropriate Access List in Teleport.
