@@ -17,6 +17,7 @@
  */
 
 import cfg from 'teleport/config';
+import { ProfilesFilterOption } from 'teleport/Integrations/Enroll/AwsConsole/Access/ProfilesFilter';
 import { AwsResource } from 'teleport/Integrations/status/AwsOidc/Cards/StatCard';
 import { TaskState } from 'teleport/Integrations/status/AwsOidc/Tasks/constants';
 import api from 'teleport/services/api';
@@ -38,6 +39,7 @@ import {
   AwsOidcPingRequest,
   AwsOidcPingResponse,
   AwsRdsDatabase,
+  AwsRolesAnywherePingResponse,
   CreateAwsAppAccessRequest,
   EnrollEksClustersRequest,
   EnrollEksClustersResponse,
@@ -61,8 +63,10 @@ import {
   ListAwsSubnetsResponse,
   ListEksClustersRequest,
   ListEksClustersResponse,
+  ListRolesAnywhereProfilesResponse,
   RdsEngineIdentifier,
   Regions,
+  RolesAnywhereProfile,
   SecurityGroup,
   SecurityGroupRule,
   Subnet,
@@ -545,6 +549,57 @@ export const integrationService = {
         };
       });
   },
+
+  awsRolesAnywherePing(
+    integrationName: string,
+    trustAnchorArn: string,
+    syncRoleArn: string,
+    syncProfileArn: string
+  ): Promise<AwsRolesAnywherePingResponse> {
+    return api
+      .post(
+        cfg.getAwsRolesAnywherePingUrl(
+          integrationName,
+          trustAnchorArn,
+          syncRoleArn,
+          syncProfileArn
+        ),
+        null
+      )
+      .then(json => {
+        return {
+          profileCount: json?.profileCount,
+          accountID: json?.accountID,
+          arn: json?.arn,
+          userId: json?.userId,
+        };
+      });
+  },
+
+  awsRolesAnywhereProfiles(
+    variables: {
+      integrationName: string;
+      pageToken: string;
+      pageSize: number;
+      filters?: ProfilesFilterOption[];
+    },
+    signal?: AbortSignal
+  ): Promise<ListRolesAnywhereProfilesResponse> {
+    const { integrationName, pageToken, pageSize, filters } = variables;
+    const path = cfg.getAwsRolesAnywhereProfilesUrl(integrationName);
+    const qs = new URLSearchParams();
+
+    qs.set('page_size', pageSize.toFixed());
+    qs.set('page_token', pageToken);
+    if (filters) {
+      qs.set('filters', filters.map(f => f.value).join(','));
+    }
+
+    return api.post(`${path}?${qs.toString()}`, signal).then(data => ({
+      profiles: data?.profiles?.map(profile => makeProfile(profile)) ?? [],
+      nextPageToken: data?.next_page_token,
+    }));
+  },
 };
 
 function makeDatabaseServices(json: any): AWSOIDCDeployedDatabaseService[] {
@@ -667,5 +722,28 @@ function makeAwsSubnets(json: any): Subnet {
     name,
     id,
     availabilityZone: availability_zone,
+  };
+}
+
+function makeProfile(json: any): RolesAnywhereProfile {
+  json = json ?? {};
+
+  const { arn, enabled, name, accept_role_session_name, tags, roles } = json;
+
+  let arr: string[] = [];
+  if (tags != undefined) {
+    const parsedObject: { [key: string]: string } = JSON.parse(
+      JSON.stringify(tags)
+    );
+    Object.entries(parsedObject).forEach(entry => arr.push(entry.join(':')));
+  }
+
+  return {
+    arn,
+    enabled,
+    name,
+    accept_role_session_name,
+    tags: arr,
+    roles,
   };
 }
