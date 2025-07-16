@@ -1,0 +1,106 @@
+---
+title: SCIM – Access List Membership Delegation to SCIM providers
+description: How to manage Access List membership using  SCIM integration
+
+---
+
+The SCIM integration between **SCIM providers** and **Teleport** enables automated
+synchronization of SCIM group memberships and Teleport Access List memberships.
+This integration supports centralized identity governance in
+external Identity Management System (like Sailpoint) while Teleport enforces
+fine-grained access controls defined by Access Lists membership grants types.
+
+User permissions in Teleport are defined through Access Lists. While role definitions
+live in Teleport, group membership is dynamically managed by SCIM Provider via SCIM group
+membership. This ensures users have up-to-date access aligned with organizational
+policies.
+
+## How it works
+
+The SCIM integration uses a 1:1 mapping between SCIM group and Teleport
+Access Lists:
+
+- Each SCIM group `displayName` must match the `spec.title` of a Teleport
+Access List.
+- Access Lists of SCIM type must be created in advance in Teleport. In this guide we're creating them using Terraform.
+- Role assignments are handled in Teleport, while group membership is deleted to External Identity Management System (like SailPoint).
+
+## Prerequisites
+- Teleport Enterprise v(=teleport.version=)
+- Teleport Terraform provider v(=teleport.version=)
+- A running Teleport cluster with SSO enabled (e.g. Okta SAML connector)
+- Identity Management System (like SailPoint) with SCIM support
+- SCIM Provider with Oauth 2.0 Client Credentials grant type support.
+
+
+## Step 1/3. Configure SCIM Integration
+Teleport provides a guided web UI based configuration flow for SCIM integration.
+
+In the Teleport Web UI, go to **"Add new integration"** and select **SCIM**.
+
+![Plugin Install](../../../../../img/sailpoint/plugin-install.png)
+
+
+Select the **SAML connector** to associate SCIM-provisioned users with SSO logins.
+
+- By default, SSO users in Teleport are ephemeral.
+- SCIM provisioning ensures users are persistently created and managed by External Identity management system via SCIM protocol.
+
+![Connector Selection](../../../../../img/sailpoint/plugin-connector.png)
+
+
+Click **Continue** to proceed to the **SCIM Credentials** screen.
+
+- Teleport uses OAuth 2.0 Bearer Tokens for SCIM authentication.
+- Copy the **Client ID**, **Client Secret**, and **Base URL** — you'll use them
+ when configuring SailPoint.
+
+## Step 2/3: Create an SCIM-Managed Access List in Teleport
+
+Create a new Access List in Teleport using Terraform. Be sure to set `type = "scim"`
+and match `spec.title` to the name of a SailPoint entitlement group this list should be synced to:
+
+
+```hcl
+resource "teleport_access_list" "acl-group-requester" {
+  header = {
+    version = "v1"
+    name = "scim-group-requester"
+  }
+  spec = {
+    title = "GroupRequester"
+    type = "scim"
+    grants = {
+      roles  = ["requester"]
+      traits = []
+    }
+    owners = [
+      {
+        name = "alice"
+      }
+    ]
+    membership_requires = {
+      roles = []
+    }
+    ownership_requires = {
+      roles = []
+    }
+    audit = {
+      recurrence = {
+        frequency    = 3
+        day_of_month = 15
+      }
+    }
+  }
+}
+```
+
+<Admonition type="info">
+    The SCIM group name (displayName) in SailPoint must exactly match
+    `spec.title` in the Teleport Access List.
+</Admonition>
+
+
+### Step 3/3. Configure SCIM integration with your Identity Management SCIM provider
+
+- [Sailpoint Teleport SCIM connector setup](./sailpoint.mdx)
