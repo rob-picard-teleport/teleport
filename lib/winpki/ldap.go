@@ -382,6 +382,7 @@ func (c *LDAPConfig) createConnection(ctx context.Context, ldapTLSConfig *tls.Co
 			continue
 		}
 
+		c.Logger.DebugContext(ctx, "Connected to LDAP server", "server", server)
 		conn.SetTimeout(ldapRequestTimeout)
 		return conn, nil
 	}
