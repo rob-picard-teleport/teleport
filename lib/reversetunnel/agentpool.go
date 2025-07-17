@@ -278,6 +278,7 @@ func (p *AgentPool) run() error {
 				// "proxy already claimed" is a fairly benign error, we should not
 				// spam the log with stack traces for it
 				level = slog.LevelDebug
+				err = trace.Unwrap(err)
 			}
 
 			p.logger.Log(p.ctx, level, "Failed to establish reverse tunnel", "error", err)
