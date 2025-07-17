@@ -6,35 +6,38 @@ labels:
  - mwi
 ---
 
-# Machine & Workload Identity for CI/CD
+Teleport Machine & Workload Identity eliminates the need for long-lived static secrets in CI/CD pipelines by issuing short-lived, automatically generated certificates at runtime.
+Teleport natively integrates with many CI/CD providers and deployment targets. Refer to the links at the bottom of this page for instructions on using Machine & Workload Identity with your preferred tools.
 
-Teleport Machine & Workload Identity replaces long-lived static secrets in CI/CD pipelines with short-lived, automatically generated certificates.
+## Eliminate secrets from your CI/CD pipeline
 
-Machine & Workload Identity has native integrations for many CI/CD providers and deployment targets. At the bottom of the page you can find links to how to Machine & Workload Identity with your tools.
+In a typical CI/CD setup, a pipeline—such as one running in GitHub Actions on GitHub's infrastructure outside the corporate network—builds a container, 
+pushes it to AWS Elastic Container Registry (ECR), and updates a Kubernetes deployment using Helm. This workflow requires two sensitive credentials stored 
+in the GitHub Actions configuration:
 
-# No More Secrets
-
-This probably looks familiar: a CI/CD pipeline running in GitHub Actions on GitHub's infrastructure, outside of the company’s network. It builds a container and pushes it to an AWS Elastic Container Registry, and uses Helm to update a chart in a Kubernetes cluster with the new container image. To take those actions it needs two secrets stored in the GitHub Action settings:
-
-- An AWS keypair  
+- An AWS keypair
 - A Kubernetes config file
 
-These secrets *should* be rotated every six months. The platform team generates them and passes them to the dev team to replace in the repository. The act of generating the new ones emits a log that goes to the security team, but there’s not a good way of connecting that with the audit log for the GitHub organization to ensure the rotation happened. None of the ways of getting it from the platform team to the dev team (Slack, email, file drop, shared password management vault) are ideal. Additionally, the Kubernetes cluster’s endpoint has to be public so the GitHub Actions infrastructure can reach it.
+Best practices recommend rotating these secrets every six months. The platform team generates new credentials and shares them with the development team, 
+who must manually update the repository. Although the credential generation process emits a security log, teams often lack a reliable way to correlate 
+it with GitHub's audit logs to verify timely rotation. Sharing credentials via Slack, email, file drops, or password managers adds further risk. 
+Moreover, exposing the Kubernetes API to the internet introduces unnecessary surface area for attack.
 
-With Teleport Machine & Workload Identity, we generate two credentials when the job starts:
+## Secure and auditable access with ephemeral credentials
 
-- A SPIFFE Verifiable Identity Document that is used with AWS IAM Roles Anywhere to authenticate with AWS ECR  
+Teleport solves these problems by generating two ephemeral credentials at job start:
+
+- A [SPIFFE Verifiable Identity Document (SVID)](https://spiffe.io/spiffe/) used with [AWS IAM Roles Anywhere](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/introduction.html) to authenticate with AWS ECR
 - A Kubernetes config file
 
-Both are based on x.509 certificates that expire when the job ends, saving the platform and dev teams’ time. An audit log is emitted when they are generated, when they are used, and what actions are taken against the Kubernetes cluster by the process using the config file. The Kubernetes commands run through the Teleport proxy, so the endpoint of the Control Plane API can be made completely private, increasing the security of the whole cluster.
+Both credentials are issued as short-lived X.509 certificates that expire automatically when the job completes. This reduces operational overhead for 
+platform and development teams while improving security posture. Teleport logs credential issuance, usage, and all actions executed against the Kubernetes cluster. 
+CI/CD processes route Kubernetes commands through the Teleport Proxy, enabling private Kubernetes API endpoints and enhancing cluster security.
 
-Teleport authenticates the pipeline using GitHub’s OIDC endpoint, confirming the organization, repository, and git ref of the pipeline to determine what credentials it is allowed to generate.
+Teleport authenticates the CI/CD pipeline using GitHub's OIDC provider, verifying the organization, repository, and Git ref before issuing credentials. 
+Because no static secrets reside in the CI/CD system, attackers have nothing to exfiltrate.
 
-*No secrets are stored in the CI/CD tool, so there is nothing to exfiltrate.*
-
-Get started securing your CI/CD pipelines:
-
-## Further reading
+### Further reading
 
 - [Architecture](../../reference/architecture/machine-id-architecture.mdx): A technical deep-dive into how Machine ID
   works.
