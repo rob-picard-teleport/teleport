@@ -30,6 +30,7 @@ import {
   GitServer,
   makeResource,
   makeResourceList,
+  RequestableRole,
   Resource,
   RoleResource,
 } from './';
@@ -124,7 +125,7 @@ class ResourceService {
   }
 
   async fetchRequestableRoles(params?: UrlListRolesParams): Promise<{
-    items: RoleResource[];
+    items: RequestableRole[];
     startKey: string;
   }> {
     return await api.get(cfg.getListRequestableRolesUrl(params));
