@@ -9,14 +9,14 @@ labels:
 Machine & Workload Identity can work together to create a comprehensive security model. Machines can securely access resources while workloads communicate securely with each other and external services, 
 all managed through Teleport's unified access plane.
 
-### CI/CD pipeline with end-to-end authentication
+## CI/CD pipeline with end-to-end authentication
 
 A [CI/CD system](../mwi-use-cases/mwi-ci-cd.mdx) securely deploys services to Kubernetes and establishes secure communication channels between them:
 
 - The pipeline authenticates through the proxy to deploy to Kubernetes and receives credentials to interact with cloud APIs (e.g., to push container images)
 - Services deployed by the pipeline receive SPIFFE identities for mutual TLS. The pipeline manages the identity lifecycle for the services it deploys
 
-### Cloud-native application with third-party API access
+## Cloud-native application with third-party API access
 
 A Kubernetes-based application needs access to both internal services and external APIs:
 
@@ -25,7 +25,7 @@ A Kubernetes-based application needs access to both internal services and extern
 - Identities authenticate to internal services via mTLS
 - JWT-based authentication is used for external API access
 
-### Zero Trust security implementation
+## Zero Trust security implementation
 
 A [Zero Trust strategy](../workload-identity/getting-started.mdx) is applied across workloads and automation:
 
@@ -33,7 +33,7 @@ A [Zero Trust strategy](../workload-identity/getting-started.mdx) is applied acr
 - Workloads authenticate using short-lived, cryptographically verifiable identities
 - Security teams use Teleport’s unified audit logs to trace all identity activity
 
-### Identity-based communication without shared secrets
+## Identity-based communication without shared secrets
 
 Zero-trust, identity-based communication without shared secrets are rotated automatically without human involvement.
 
