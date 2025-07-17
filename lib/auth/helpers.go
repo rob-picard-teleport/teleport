@@ -669,7 +669,7 @@ func generateCertificate(authServer *Server, identity TestIdentity) ([]byte, []b
 			identity.TTL = time.Hour
 		}
 
-		certs, err := authServer.generateUserCert(ctx, certRequest{
+		req := certRequest{
 			tlsPublicKey:     tlsPublicKeyPEM,
 			user:             userState,
 			ttl:              identity.TTL,
@@ -680,7 +680,14 @@ func generateCertificate(authServer *Server, identity TestIdentity) ([]byte, []b
 			renewable:        identity.Renewable,
 			generation:       identity.Generation,
 			deviceExtensions: DeviceExtensions(id.Identity.DeviceExtensions),
-		})
+		}
+
+		if botName, isBot := userState.GetLabel(types.BotLabel); isBot {
+			req.botName = botName
+			req.botInstanceID = uuid.NewString()
+		}
+
+		certs, err := authServer.generateUserCert(ctx, req)
 		if err != nil {
 			return nil, nil, trace.Wrap(err)
 		}
