@@ -293,25 +293,33 @@ type awsConfigurator struct {
 	targetAccounts []string
 }
 
+type policiesGetter func(assumeRoleARN, externalID string) (awslib.Policies, error)
+
+type iamClientGetter func(assumeRoleARN, externalID string) (iamClient, error)
+
+type ssmClientGetter func(region, assumeRoleARN, externalID string) (ssmClient, error)
+
 type ConfiguratorConfig struct {
 	// Flags user-provided flags to configure/execute the configurator.
 	Flags configurators.BootstrapFlags
 	// ServiceConfig Teleport database service config.
 	ServiceConfig *servicecfg.Config
-	// awsConfigs is a map of role ARN/external ID -> AWS config.
-	awsConfigs map[string]aws.Config
-	// policies is a map of role ARN/external ID -> AWS policies client.
-	policies map[string]awslib.Policies
+	// awsConfigs is a cache of AWS configs.
+	awsConfigs *awsconfig.Cache
 	// identity is a cached AWS identity.
 	identity awslib.Identity
-	// iamClients is a map of role ARN/external ID -> AWS IAM client.
-	iamClients map[string]iamClient
-	// ssmClients is a mapping of role ARN/external ID/region -> AWS SSM client
-	ssmClients map[string]ssmClient
-}
-
-func configCacheKey(assumeRole, externalID, region string) string {
-	return fmt.Sprintf("%s/%s/%s", assumeRole, externalID, region)
+	// getPolicies gets the AWS policy client for the specified assume role ARN
+	// and external ID. assumeRoleARN and externalID may be empty.
+	// Overridden in tests.
+	getPolicies func(assumeRoleARN, externalID string) (awslib.Policies, error)
+	// getIAMClient gets the AWS IAM client for the specified assume role ARN
+	// and external ID. assumeRoleARN and externalID may be empty.
+	// Overridden in tests.
+	getIAMClient func(assumeRoleARN, externalID string) (iamClient, error)
+	// getSSMClient gets the AWS SSM client for the specified assume role ARN,
+	// external ID, and region. assumeRoleARN and externalID may be empty.
+	// Overridden in tests.
+	getSSMClient func(region, assumeRoleARN, externalID string) (ssmClient, error)
 }
 
 // getAWSConfig gets the cached AWS config for the specified assume role ARN
@@ -320,11 +328,7 @@ func (c *ConfiguratorConfig) getAWSConfig(assumeRoleARN, externalID string) (aws
 	if c.Flags.Manual {
 		return aws.Config{}, trace.BadParameter("GetAWSConfig not allowed in manual mode")
 	}
-	key := configCacheKey(assumeRoleARN, externalID, "")
-	if cfg, ok := c.awsConfigs[key]; ok {
-		return cfg, nil
-	}
-	cfg, err := awsconfig.GetConfig(
+	cfg, err := c.awsConfigs.GetConfig(
 		context.Background(),
 		"", /* get region from env > profile > fallback func */
 		awsconfig.WithFallbackRegionResolver(func(ctx context.Context) (string, error) {
@@ -336,7 +340,6 @@ func (c *ConfiguratorConfig) getAWSConfig(assumeRoleARN, externalID string) (aws
 	if err != nil {
 		return aws.Config{}, trace.Wrap(err)
 	}
-	c.awsConfigs[key] = cfg
 	return cfg, nil
 }
 
@@ -368,69 +371,6 @@ func (c *ConfiguratorConfig) getIdentity(assumeRoleARN, externalID string) (awsl
 	}
 	c.identity = identity
 	return identity, nil
-}
-
-// getPolicies gets the cached AWS policy client for the specified assume role ARN
-// and external ID. assumeRoleARN and externalID may be empty.
-func (c *ConfiguratorConfig) getPolicies(assumeRoleARN, externalID string) (awslib.Policies, error) {
-	key := configCacheKey(assumeRoleARN, externalID, "")
-	if policies, ok := c.policies[key]; ok {
-		return policies, nil
-	}
-	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	identity, err := c.getIdentity(assumeRoleARN, externalID)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	iamClient := iamutils.NewFromConfig(awsCfg, func(o *iam.Options) {
-		o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
-	})
-	partition := identity.GetPartition()
-	accountID := identity.GetAccountID()
-	policies := awslib.NewPolicies(partition, accountID, iamClient)
-	c.policies[key] = policies
-	return policies, nil
-}
-
-// getIAMClient gets the cached AWS IAM client for the specified assume role ARN
-// and external ID. assumeRoleARN and externalID may be empty.
-func (c *ConfiguratorConfig) getIAMClient(assumeRoleARN, externalID string) (iamClient, error) {
-	key := configCacheKey(assumeRoleARN, externalID, "")
-	if iamClient, ok := c.iamClients[key]; ok {
-		return iamClient, nil
-	}
-	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	iamClient := iamutils.NewFromConfig(awsCfg, func(o *iam.Options) {
-		o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
-	})
-	c.iamClients[key] = iamClient
-	return iamClient, nil
-}
-
-// getSSMClient gets the cached AWS SSM client for the specified assume role ARN,
-// external ID, and region. assumeRoleARN and externalID may be empty.
-func (c *ConfiguratorConfig) getSSMClient(region, assumeRoleARN, externalID string) (ssmClient, error) {
-	key := configCacheKey(assumeRoleARN, externalID, region)
-	if ssmClient, ok := c.ssmClients[key]; ok {
-		return ssmClient, nil
-	}
-
-	awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	ssmClient := ssm.NewFromConfig(awsCfg, func(o *ssm.Options) {
-		o.Region = region
-		o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
-	})
-	c.ssmClients[key] = ssmClient
-	return ssmClient, nil
 }
 
 type iamClient interface {
@@ -488,16 +428,52 @@ func (c *ConfiguratorConfig) CheckAndSetDefaults() error {
 		return trace.BadParameter("config file is required")
 	}
 	if c.awsConfigs == nil {
-		c.awsConfigs = make(map[string]aws.Config)
+		cache, err := awsconfig.NewCache()
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		c.awsConfigs = cache
 	}
-	if c.ssmClients == nil {
-		c.ssmClients = make(map[string]ssmClient)
+	if c.getPolicies == nil {
+		c.getPolicies = func(assumeRoleARN, externalID string) (awslib.Policies, error) {
+			awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			identity, err := c.getIdentity(assumeRoleARN, externalID)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			iamClient := iamutils.NewFromConfig(awsCfg, func(o *iam.Options) {
+				o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+			})
+			partition := identity.GetPartition()
+			accountID := identity.GetAccountID()
+			return awslib.NewPolicies(partition, accountID, iamClient), nil
+		}
 	}
-	if c.policies == nil {
-		c.policies = make(map[string]awslib.Policies)
+	if c.getIAMClient == nil {
+		c.getIAMClient = func(assumeRoleARN, externalID string) (iamClient, error) {
+			awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			return iamutils.NewFromConfig(awsCfg, func(o *iam.Options) {
+				o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+			}), nil
+		}
 	}
-	if c.iamClients == nil {
-		c.iamClients = make(map[string]iamClient)
+	if c.getSSMClient == nil {
+		c.getSSMClient = func(region, assumeRoleARN, externalID string) (ssmClient, error) {
+			awsCfg, err := c.getAWSConfig(assumeRoleARN, externalID)
+			if err != nil {
+				return nil, trace.Wrap(err)
+			}
+			return ssm.NewFromConfig(awsCfg, func(o *ssm.Options) {
+				o.Region = region
+				o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+			}), nil
+		}
 	}
 	return nil
 }
