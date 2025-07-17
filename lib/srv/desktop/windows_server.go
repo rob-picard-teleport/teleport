@@ -31,7 +31,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -104,10 +103,6 @@ type WindowsService struct {
 	middleware *authz.Middleware
 
 	ca *winpki.CertificateStoreClient
-
-	mu              sync.Mutex // mu protects the fields that follow
-	ldapConfigured  bool
-	ldapInitialized bool
 
 	// lastDisoveryResults stores the results of the most recent LDAP search
 	// when desktop discovery is enabled.
@@ -466,9 +461,6 @@ func (s *WindowsService) tlsConfigForLDAP() (*tls.Config, error) {
 // Close instructs the server to stop accepting new connections and abort all
 // established ones. Close does not wait for the connections to be finished.
 func (s *WindowsService) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.close()
 
 	return nil
@@ -566,20 +558,6 @@ func (s *WindowsService) Serve(plainLis net.Listener) error {
 	}
 }
 
-func (s *WindowsService) readyForConnections() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// If LDAP was not configured, we assume all hosts are non-AD
-	// and the server can accept connections right away.
-	if !s.ldapConfigured {
-		return true
-	}
-
-	// If LDAP was configured, then we need to wait for it to be initialized
-	// before accepting connections.
-	return s.ldapInitialized
-}
-
 // handleConnection handles TLS connections from a Teleport proxy.
 // It authenticates and authorizes the connection, and then begins
 // translating the TDP messages from the proxy into native RDP.
@@ -594,15 +572,6 @@ func (s *WindowsService) handleConnection(proxyConn *tls.Conn) {
 		if err := tdpConn.SendNotification(message, tdp.SeverityError); err != nil {
 			log.ErrorContext(context.Background(), "Failed to send TDP error message", "error", err)
 		}
-	}
-
-	// don't handle connections until the LDAP initialization retry loop has succeeded
-	// (it would fail anyway, but this presents a better error to the user)
-	if !s.readyForConnections() {
-		const msg = "This service cannot accept connections until LDAP initialization has completed."
-		log.ErrorContext(context.Background(), msg)
-		sendTDPError(msg)
-		return
 	}
 
 	// Check connection limits.
