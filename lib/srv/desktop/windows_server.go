@@ -366,6 +366,13 @@ func NewWindowsService(cfg WindowsServiceConfig) (*WindowsService, error) {
 		},
 	})
 
+	ok := false
+	defer func() {
+		if !ok {
+			s.Close()
+		}
+	}()
+
 	if err := s.startServiceHeartbeat(); err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -388,6 +395,7 @@ func NewWindowsService(cfg WindowsServiceConfig) (*WindowsService, error) {
 		s.cfg.Logger.InfoContext(ctx, "desktop discovery via LDAP is disabled, set 'base_dn' to enable")
 	}
 
+	ok = true
 	return s, nil
 }
 
