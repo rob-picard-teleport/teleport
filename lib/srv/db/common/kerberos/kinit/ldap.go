@@ -101,6 +101,36 @@ func newLDAPConnector(logger *slog.Logger, authClient winpki.AuthInterface, adCo
 
 // GetActiveDirectorySID queries LDAP to get SID of a given username.
 func (s *ldapConnector) GetActiveDirectorySID(ctx context.Context, username string) (sid string, err error) {
+	if s.dialLDAPServerFunc != nil {
+		mock, err := s.dialLDAPServerFunc(ctx)
+		if err != nil {
+			return "", trace.Wrap(err)
+		}
+
+		searchRequest := ldap.NewSearchRequest(
+			"DC="+strings.ReplaceAll(s.ldapConfig.domain, ".", ",DC="),
+			ldap.ScopeWholeSubtree,
+			ldap.NeverDerefAliases,
+			0,
+			0,
+			false,
+			"(&(sAMAccountType=805306368)(sAMAccountName="+username+"))",
+			[]string{"objectSid"},
+			nil,
+		)
+
+		result, err := mock.SearchWithPaging(searchRequest, 1000)
+		if err != nil {
+			return "", trace.Wrap(err)
+		}
+
+		if len(result.Entries) == 0 {
+			return "", trace.NotFound("user %q not found", username)
+		}
+
+		return winpki.ADSIDStringFromLDAPEntry(result.Entries[0])
+	}
+
 	clusterName, err := s.authClient.GetClusterName(ctx)
 	if err != nil {
 		return "", trace.Wrap(err)
