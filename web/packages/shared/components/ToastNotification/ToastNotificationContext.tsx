@@ -31,6 +31,11 @@ import {
   ToastNotificationSeverity,
 } from './types';
 
+export type NotificationEntry = {
+  severity: ToastNotificationSeverity;
+  content: ToastNotificationItemContent;
+};
+
 type ToastNotificationContextState = {
   notifications: ToastNotificationItem[];
   /**
@@ -41,10 +46,7 @@ type ToastNotificationContextState = {
    * adds new notification to the beginning of
    * an existing list of notifications.
    */
-  addNotification(
-    severity: ToastNotificationSeverity,
-    content: ToastNotificationItemContent
-  ): void;
+  addNotification(entry: NotificationEntry): void;
 };
 
 const ToastNotificationContext =
@@ -64,12 +66,13 @@ export const ToastNotificationProvider: FC<PropsWithChildren> = ({
     setNotifications(n => n.filter(item => item.id !== id));
   }
 
-  function addNotification(
-    severity: ToastNotificationSeverity,
-    content: ToastNotificationItemContent
-  ) {
+  function addNotification(entry: NotificationEntry) {
     setNotifications(notifications => [
-      { id: crypto.randomUUID(), content, severity },
+      {
+        id: crypto.randomUUID(),
+        content: entry.content,
+        severity: entry.severity,
+      },
       ...notifications,
     ]);
   }

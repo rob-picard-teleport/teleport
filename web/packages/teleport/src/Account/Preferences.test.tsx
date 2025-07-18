@@ -140,8 +140,11 @@ describe('Account/Preferences', () => {
       );
     });
 
-    expect(addNotification).toHaveBeenCalledWith('success', {
-      title: 'Change saved',
+    expect(addNotification).toHaveBeenCalledWith({
+      severity: 'success',
+      content: {
+        title: 'Change saved',
+      },
     });
   });
 

@@ -188,7 +188,10 @@ const TestComponent = () => {
     <div>
       <ButtonPrimary
         onClick={() => {
-          addNotification('success', `some note ${note}`);
+          addNotification({
+            severity: 'success',
+            content: `some note ${note}`,
+          });
           note += 1;
         }}
       >

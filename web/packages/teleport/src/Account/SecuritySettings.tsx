@@ -99,13 +99,19 @@ export function SecuritySettings({
   if (prevFetchStatus !== fetchDevicesAttempt.status) {
     setPrevFetchStatus(fetchDevicesAttempt.status);
     if (fetchDevicesAttempt.status === 'failed') {
-      addNotification('error', fetchDevicesAttempt.statusText);
+      addNotification({
+        severity: 'error',
+        content: fetchDevicesAttempt.statusText,
+      });
     }
   }
 
   function onPasswordChange() {
-    addNotification('info', {
-      title: 'Your password has been changed.',
+    addNotification({
+      severity: 'info',
+      content: {
+        title: 'Your password has been changed.',
+      },
     });
     onPasswordChangeCb();
   }
@@ -115,7 +121,7 @@ export function SecuritySettings({
       newDeviceUsage === 'passwordless'
         ? 'Passkey successfully saved.'
         : 'MFA method successfully saved.';
-    addNotification('info', { title: message, isAutoRemovable: true });
+    addNotification({ severity: 'info', content: { title: message } });
     onDeviceAdded();
   }
 
@@ -124,7 +130,10 @@ export function SecuritySettings({
       deviceToRemove.usage === 'passwordless'
         ? 'Passkey successfully deleted.'
         : 'MFA method successfully deleted.';
-    addNotification('info', { title: message, isAutoRemovable: true });
+    addNotification({
+      severity: 'info',
+      content: { title: message },
+    });
     onDeviceRemoved();
   }
   return (

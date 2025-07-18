@@ -333,8 +333,11 @@ export function Preferences({ setErrorMessage }: PreferencesProps) {
                     runUpdatePreference({
                       keyboardLayout: selected.value,
                     });
-                    addNotification('success', {
-                      title: 'Change saved',
+                    addNotification({
+                      severity: 'success',
+                      content: {
+                        title: 'Change saved',
+                      },
                     });
                   }}
                   isDisabled={updatePreferenceAttempt.status === 'processing'}
