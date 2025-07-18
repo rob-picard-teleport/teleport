@@ -53,7 +53,7 @@ func locateLDAPServer(ctx context.Context, domain string, site string, resolver 
 	for _, record := range records {
 		addrs := []string{record.Target}
 
-		// In development enviroments, the hostnames returned from the SRV records are
+		// In development environments, the hostnames returned from the SRV records are
 		// unlikely to resolve with the system resolver, so get an IP address now while
 		// we're using DNS from AD.
 		if resolve, _ := strconv.ParseBool(os.Getenv("TELEPORT_LDAP_RESOLVE_SERVER")); resolve {
