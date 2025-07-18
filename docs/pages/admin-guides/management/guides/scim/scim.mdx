@@ -18,11 +18,12 @@ policies.
 ## How it works
 
 The SCIM integration uses a 1:1 mapping between SCIM group and Teleport
-Access Lists:
+Access Lists
 
 - Each SCIM group `displayName` must match the `spec.title` of a Teleport
 Access List.
 - Access Lists of SCIM type must be created in advance in Teleport. In this guide we're creating them using Terraform.
+- Only Access Lists of type `scim` can be managed by SCIM providers.
 - Role assignments are handled in Teleport, while group membership is deleted to External Identity Management System (like SailPoint).
 
 ## Prerequisites
@@ -98,7 +99,7 @@ Click **Continue** to proceed to the **SCIM Credentials** screen.
 
 - Teleport uses OAuth 2.0 Bearer Tokens for SCIM authentication.
 - Copy the **Client ID**, **Client Secret**, and **Base URL** — you'll use them
-  when configuring your Identity Provider In next step.
+  when configuring your Identity Provider in the next step.
 
 ### Step 3/3. Configure SCIM integration with your Identity Management SCIM provider
 
